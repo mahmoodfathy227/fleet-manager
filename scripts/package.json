@@ -1,0 +1,23 @@
+{
+  "name": "tr1-template-filler",
+  "version": "1.0.0",
+  "description": "Fill TR1 Home to School Transport Record template",
+  "main": "fillTR1Template.js",
+  "scripts": {
+    "fill-tr1": "node fillTR1Template.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "excel",
+    "template",
+    "tr1",
+    "transport",
+    "council"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  }
+}
+

@@ -1,0 +1,32 @@
+--- a/app/dashboard/employees/create/page.tsx
++++ b/app/dashboard/employees/create/page.tsx
+@@ -616,11 +616,15 @@
+                           <span className="text-sm font-medium">{label} completed</span>
+                         </label>
+-                        {(driverForm as Record<string, unknown>)[completed] && (
+-                          <Input type="date" name={date} value={(driverForm as Record<string, string>)[date]} onChange={handleDriverInput} className="w-40" />
+-                        )}
++                        {(() => {
++                          const done = (driverForm as Record<string, unknown>)[completed] === true;
++                          if (!done) return null as React.ReactNode;
++                          const val = (driverForm as Record<string, unknown>)[date];
++                          return <Input type="date" name={date} value={String(val ?? '')} onChange={handleDriverInput} className="w-40" />;
++                        })()}
+                       </div>
+                     ))}
+                   </div>
+@@ -724,11 +728,15 @@
+                           <span className="text-sm font-medium">{label} completed</span>
+                         </label>
+-                        {(paForm as Record<string, unknown>)[completed] && (
+-                          <Input type="date" name={date} value={(paForm as Record<string, string>)[date]} onChange={handlePAInput} className="w-40" />
+-                        )}
++                        {(() => {
++                          const done = (paForm as Record<string, unknown>)[completed] === true;
++                          if (!done) return null as React.ReactNode;
++                          const val = (paForm as Record<string, unknown>)[date];
++                          return <Input type="date" name={date} value={String(val ?? '')} onChange={handlePAInput} className="w-40" />;
++                        })()}
+                       </div>
+                     ))}
+                   </div>

@@ -1,0 +1,65 @@
+--- a/app/dashboard/employees/create/page.tsx
++++ b/app/dashboard/employees/create/page.tsx
+@@ -616,11 +616,15 @@
+                           <span className="text-sm font-medium">{label} completed</span>
+                         </label>
+-                        {(driverForm as Record<string, unknown>)[completed] && (
+-                          <Input type="date" name={date} value={(driverForm as Record<string, string>)[date]} onChange={handleDriverInput} className="w-40" />
+-                        )}
++                        {(() => {
++                          const done = (driverForm as Record<string, unknown>)[completed] === true;
++                          if (!done) return null as React.ReactNode;
++                          const val = (driverForm as Record<string, unknown>)[date];
++                          return <Input type="date" name={date} value={String(val ?? '')} onChange={handleDriverInput} className="w-40" />;
++                        })()}
+                       </div>
+                     ))}
+                   </div>
+@@ -724,11 +728,15 @@
+                           <span className="text-sm font-medium">{label} completed</span>
+                         </label>
+-                        {(paForm as Record<string, unknown>)[completed] && (
+-                          <Input type="date" name={date} value={(paForm as Record<string, string>)[date]} onChange={handlePAInput} className="w-40" />
+-                        )}
++                        {(() => {
++                          const done = (paForm as Record<string, unknown>)[completed] === true;
++                          if (!done) return null as React.ReactNode;
++                          const val = (paForm as Record<string, unknown>)[date];
++                          return <Input type="date" name={date} value={String(val ?? '')} onChange={handlePAInput} className="w-40" />;
++                        })()}
+                       </div>
+                     ))}
+                   </div>
+--- a/app/dashboard/passengers/[id]/PassengerDetailClientFull.tsx
++++ b/app/dashboard/passengers/[id]/PassengerDetailClientFull.tsx
+@@ -284,7 +284,7 @@
+                                                             <span className="text-[10px] text-slate-500">{i.incident_type}</span>
+                                                             <Link href={`/dashboard/incidents/${i.id}`}>
+-                                                                <Button size="sm" variant="link" className="h-auto p-0 text-[10px]">View</Button>
++                                                                <Button size="sm" variant="ghost" className="h-auto p-0 text-[10px] text-primary hover:text-primary/90">View</Button>
+                                                             </Link>
+                                                         </div>
+                                                     </div>
+--- a/components/ui/Button.tsx
++++ b/components/ui/Button.tsx
+@@ -3,7 +3,7 @@
+ import { Loader2 } from 'lucide-react'
+ 
+ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline'
++  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline' | 'link'
+   size?: 'sm' | 'md' | 'lg'
+   isLoading?: boolean
+   leftIcon?: React.ReactNode
+@@ -42,7 +42,8 @@
+             'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90 focus-visible:ring-destructive':
+               variant === 'danger',
+             // Ghost - Transparent
+-            'hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring':
+-              variant === 'ghost',
++            // Ghost / Link - Transparent, link-like
++            'hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring':
++              variant === 'ghost' || variant === 'link',
+             // Outline - Bordered
+             'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring':
+               variant === 'outline',
