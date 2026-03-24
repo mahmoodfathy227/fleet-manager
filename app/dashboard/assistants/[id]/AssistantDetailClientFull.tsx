@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import {
-  ArrowLeft, Pencil, AlertTriangle, CheckCircle, Clock, XCircle,
-  FileText, GraduationCap, Download, ExternalLink, Eye, User,
-  Timer, Calendar, Shield, CreditCard, Phone, Mail
+  ArrowLeft, Pencil, CheckCircle, Clock, XCircle,
+  FileText, Eye, User,
+  Phone, Mail
 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { notFound } from 'next/navigation'
@@ -58,55 +58,16 @@ interface Document {
   file_path: string | null
 }
 
-// Helper to calculate days remaining
-function getDaysRemaining(expiryDate: string | null): number | null {
-  if (!expiryDate) return null
-  const today = new Date()
-  const expiry = new Date(expiryDate)
-  const diffTime = expiry.getTime() - today.getTime()
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-  return diffDays
-}
-
-// Helper to get status badge for expiry dates
-function getExpiryBadge(daysRemaining: number | null) {
-  if (daysRemaining === null) {
-    return { icon: null, label: 'Not Set', color: 'bg-slate-100 text-slate-600' }
-  }
-  if (daysRemaining < 0) {
-    return {
-      icon: XCircle,
-      label: `Expired (${Math.abs(daysRemaining)} days)`,
-      color: 'bg-red-50 text-red-700 border-red-200'
-    }
-  }
-  if (daysRemaining <= 14) {
-    return {
-      icon: AlertTriangle,
-      label: `${daysRemaining} days left`,
-      color: 'bg-amber-50 text-amber-700 border-amber-200'
-    }
-  }
-  if (daysRemaining <= 30) {
-    return {
-      icon: Clock,
-      label: `${daysRemaining} days left`,
-      color: 'bg-yellow-50 text-yellow-700 border-yellow-200'
-    }
-  }
-  return {
-    icon: CheckCircle,
-    label: `${daysRemaining} days left`,
-    color: 'bg-green-50 text-green-700 border-green-200'
-  }
-}
-
 export function AssistantDetailClientFull({ id }: { id: string }) {
   const [assistant, setAssistant] = useState<PassengerAssistant | null>(null)
   const [loading, setLoading] = useState(true)
   const [documents, setDocuments] = useState<Document[]>([])
   const [idBadgePhotoUrl, setIdBadgePhotoUrl] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'documents'>('overview')
+
+  useEffect(() => {
+    console.debug('[fleet] AssistantDetailClientFull: Requirements + Compliance hidden (restored after git rebase)')
+  }, [])
 
   useEffect(() => {
     async function fetchAssistant() {
@@ -187,13 +148,6 @@ export function AssistantDetailClientFull({ id }: { id: string }) {
 
   const employee = Array.isArray(assistant.employees) ? assistant.employees[0] : assistant.employees
   if (!employee) return notFound()
-
-  const certificates = [
-    { label: 'TAS Badge', date: assistant.tas_badge_expiry_date, ref: assistant.tas_badge_number, important: true },
-    { label: 'DBS Check', date: null, ref: assistant.dbs_number, status: assistant.dbs_number ? 'Active' : 'Missing' },
-    { label: 'First Aid', date: assistant.first_aid_certificate_expiry_date, important: true },
-    { label: 'Passport', date: assistant.passport_expiry_date },
-  ]
 
   const trainingStatus = [
     { label: 'Safeguarding', completed: assistant.safeguarding_training_completed, date: assistant.safeguarding_training_date },
@@ -320,69 +274,10 @@ export function AssistantDetailClientFull({ id }: { id: string }) {
             </CardContent>
           </Card>
 
-          {/* Checklists */}
-          <Card>
-            <CardContent className="p-4 space-y-2">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Requirements</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: 'Photo Taken', active: assistant.photo_taken },
-                  { label: 'Birth Cert', active: assistant.birth_certificate },
-                ].map((item, i) => (
-                  <div key={i} className={`flex items-center gap-2 text-xs p-2 rounded border ${item.active ? 'bg-green-50 border-green-100 text-green-800' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                    {item.active ? <CheckCircle className="h-3 w-3" /> : <div className="h-3 w-3 rounded-full border border-slate-300" />}
-                    {item.label}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
         </div>
 
-        {/* Right Column: Certificates & Training (8 cols) */}
+        {/* Right Column: Training & documents (8 cols) */}
         <div className="lg:col-span-8 space-y-4">
-
-          {/* Critical Expiring Certificates */}
-          <Card className="overflow-hidden">
-            <div className="p-3 border-b bg-slate-50/50 flex justify-between items-center">
-              <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                <Shield className="h-4 w-4" /> Compliance Status
-              </h3>
-              <Link href={`/dashboard/assistants/${id}/edit`}>
-                <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600 hover:text-blue-700">Manage</Button>
-              </Link>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {certificates.map((cert, i) => {
-                const days = getDaysRemaining(cert.date)
-                const status = getExpiryBadge(days)
-
-                if (!cert.date && !cert.ref && !cert.important && !cert.status) return null
-
-                return (
-                  <div key={i} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-slate-700">{cert.label}</span>
-                      {cert.ref && <span className="text-xs text-slate-500 font-mono">{cert.ref}</span>}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {cert.date && (
-                        <div className="text-right">
-                          <p className="text-xs font-medium text-slate-900">{formatDate(cert.date)}</p>
-                          <p className="text-[10px] text-slate-400">Expiry Date</p>
-                        </div>
-                      )}
-                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}>
-                        {status.icon && <status.icon className="h-3 w-3" />}
-                        {status.label}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </Card>
 
           {/* Training Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
