@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatDate } from '@/lib/utils'
 import {
   format,
   startOfMonth,
@@ -272,7 +273,7 @@ function EmployeeCertCard({ cert }: { cert: DayCert }) {
           <span className="font-medium">{cert.doc_type}</span>
         </div>
         <div>
-          <span className="text-slate-500">Expiry:</span> <span>{cert.expiry_date}</span>
+          <span className="text-slate-500">Expiry:</span> <span>{cert.expiry_date ? formatDate(cert.expiry_date) : '—'}</span>
         </div>
         <div>
           <span className="text-slate-500">Days remaining:</span>{' '}

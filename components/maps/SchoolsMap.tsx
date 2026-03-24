@@ -191,35 +191,33 @@ export function SchoolsMap({ schools, apiKey }: SchoolsMapProps) {
     })
   }
 
-  if (loading) {
-    return (
-      <div className="h-[500px] rounded-lg border bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-navy mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading map...</p>
-        </div>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="h-[500px] rounded-lg border bg-red-50 flex items-center justify-center">
         <div className="text-center text-red-700 p-4">
           <p className="font-medium mb-2">⚠️ Map Loading Error</p>
           <p className="text-sm">{error}</p>
-          <p className="text-xs mt-2">Please add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to your .env file</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div 
-      ref={mapRef} 
-      className="h-[500px] w-full rounded-lg border shadow-md"
-      style={{ minHeight: '500px' }}
-    />
+    <div className="relative h-[500px] w-full">
+      {loading && (
+        <div className="absolute inset-0 z-10 rounded-lg border bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-navy mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading map...</p>
+          </div>
+        </div>
+      )}
+      <div
+        ref={mapRef}
+        className="h-[500px] w-full rounded-lg border shadow-md"
+        style={{ minHeight: '500px' }}
+      />
+    </div>
   )
 }
 

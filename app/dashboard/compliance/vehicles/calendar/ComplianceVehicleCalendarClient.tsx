@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import {
   format,
@@ -289,7 +290,7 @@ function DayDocumentCard({
     ? `/api/documents/view?bucket=VEHICLE_DOCUMENTS&path=${encodeURIComponent(doc.file_path)}`
     : null
 
-  const templateMessage = `Hi ${doc.assigned_driver_name ?? 'there'}, your ${doc.doc_type ?? 'document'} for vehicle ${doc.vehicle_label} expires on ${doc.expiry_date ?? 'N/A'}. Please renew and upload/update the document.`
+  const templateMessage = `Hi ${doc.assigned_driver_name ?? 'there'}, your ${doc.doc_type ?? 'document'} for vehicle ${doc.vehicle_label} expires on ${doc.expiry_date ? formatDate(doc.expiry_date) : 'N/A'}. Please renew and upload/update the document.`
 
   const copyTemplate = () => {
     navigator.clipboard.writeText(templateMessage)
@@ -385,7 +386,7 @@ function DayDocumentCard({
         )}
         <div>
           <span className="text-slate-500">Expiry:</span>{' '}
-          <span>{doc.expiry_date ?? '—'}</span>
+          <span>{doc.expiry_date ? formatDate(doc.expiry_date) : '—'}</span>
         </div>
         <div>
           <span className="text-slate-500">Days remaining:</span>{' '}

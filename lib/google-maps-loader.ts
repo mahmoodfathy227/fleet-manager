@@ -60,7 +60,7 @@ export function loadGoogleMapsScript(
   const librariesParam = libraries.length > 0 ? `&libraries=${libraries.join(',')}` : ''
   window.googleMapsLoadingPromise = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}${librariesParam}&loading=async&v=weekly`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}${librariesParam}&v=weekly`
     script.async = true
     script.defer = true
     script.id = 'google-maps-script'
