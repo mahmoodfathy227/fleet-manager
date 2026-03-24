@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { getRealtimeSnapshotForVehicle } from '@/lib/samsara/realtime-table-service'
-import { getVehicleLocationFallback } from '@/lib/samsara/location-fallback-service'
+import {
+  getVehicleLocationFallback,
+  type SupabaseLike,
+} from '@/lib/samsara/location-fallback-service'
 
 export async function getVehicleTelematicsState(vehicleId: number) {
   const supabase = await createClient()
@@ -40,7 +43,7 @@ export async function getVehicleTelematicsState(vehicleId: number) {
         .not('started_at', 'is', null)
         .order('started_at', { ascending: false })
         .limit(20),
-      getVehicleLocationFallback(supabase, vehicleId),
+      getVehicleLocationFallback(supabase as unknown as SupabaseLike, vehicleId),
     ])
 
   if (!vehicle) return null

@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { getRealtimeSnapshotForVehicle } from '@/lib/samsara/realtime-table-service'
-import { getVehicleLocationFallback } from '@/lib/samsara/location-fallback-service'
+import {
+  getVehicleLocationFallback,
+  type SupabaseLike,
+} from '@/lib/samsara/location-fallback-service'
 
 type Coordinate = { lat: number; lng: number }
 
@@ -89,7 +92,10 @@ export async function getRouteLiveState(routeId: number) {
         .maybeSingle()
       telematics =
         data ||
-        (await getVehicleLocationFallback(supabase, vehicleId) as unknown as Record<string, unknown> | null)
+        (await getVehicleLocationFallback(
+          supabase as unknown as SupabaseLike,
+          vehicleId
+        ) as unknown as Record<string, unknown> | null)
     }
   }
 
