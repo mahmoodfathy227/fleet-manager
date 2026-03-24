@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
+import { formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -446,12 +447,12 @@ export function SubjectDocumentsChecklist({
                         )}
                         <div>
                           <p className="text-[10px] text-slate-500 uppercase tracking-wide">Issue date</p>
-                          <p className="text-sm text-slate-900 mt-0.5">{display.issue_date || '—'}</p>
+                          <p className="text-sm text-slate-900 mt-0.5">{display.issue_date ? formatDate(display.issue_date) : '—'}</p>
                         </div>
                         {req.requires_expiry && (
                           <div>
                             <p className="text-[10px] text-slate-500 uppercase tracking-wide">Expiry date</p>
-                            <p className="text-sm text-slate-900 mt-0.5">{display.expiry_date || '—'}</p>
+                            <p className="text-sm text-slate-900 mt-0.5">{display.expiry_date ? formatDate(display.expiry_date) : '—'}</p>
                           </div>
                         )}
                       </div>
