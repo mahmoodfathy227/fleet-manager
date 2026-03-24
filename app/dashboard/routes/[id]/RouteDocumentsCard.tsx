@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { FileText, Upload, X } from 'lucide-react'
+import { formatDateTime } from '@/lib/utils'
 
 interface RouteDocumentRow {
   id: number
@@ -256,7 +257,7 @@ export default function RouteDocumentsCard({ routeId }: { routeId: number }) {
                         )}
                       </td>
                       <td className="px-4 py-2 text-sm text-gray-500">
-                        {new Date(doc.uploaded_at).toLocaleString()}
+                        {formatDateTime(doc.uploaded_at)}
                       </td>
                       <td className="px-4 py-2 text-sm text-gray-500">
                         {uploadedByEmail}

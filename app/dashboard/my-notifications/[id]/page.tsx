@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { getFunctionsUrl } from '@/lib/firebase-functions'
+import { formatDateTime } from '@/lib/utils'
 
 type NotificationDetail = {
   notificationId: string
@@ -130,7 +131,7 @@ export default function NotificationDetailPage() {
           <CardHeader>
             <CardTitle>{item.title}</CardTitle>
             <p className="text-sm text-slate-500">
-              {item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}
+              {item.createdAt ? formatDateTime(item.createdAt) : ''}
             </p>
           </CardHeader>
           <CardContent className="space-y-4">

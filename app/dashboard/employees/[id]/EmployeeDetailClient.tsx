@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/Card'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatDateTime } from '@/lib/utils'
 import { CheckCircle, XCircle, Building2, Phone, Mail, MapPin } from 'lucide-react'
 
 interface FieldAuditInfo {
@@ -82,18 +82,6 @@ export default function EmployeeDetailClient({ employeeJson, employeeId }: Emplo
 
   const getFieldAuditInfo = (fieldName: string) => {
     return fieldAudit[fieldName]
-  }
-
-  const formatDateTime = (dateString: string | null) => {
-    if (!dateString) return 'N/A'
-    const date = new Date(dateString)
-    return date.toLocaleString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
   }
 
   const FieldWithAudit = ({ fieldName, label, value, formatValue }: {

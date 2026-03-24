@@ -425,7 +425,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-400">
           <Clock className="h-3.5 w-3.5" />
-          <span>{now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+          <span>{now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}</span>
         </div>
       </div>
 

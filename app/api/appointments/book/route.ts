@@ -77,7 +77,7 @@ export async function POST(request: Request) {
 
     // Create system activity instead of sending email
     try {
-      const slotDate = slot?.slot_start ? new Date(slot.slot_start).toLocaleDateString() : 'N/A'
+      const slotDate = slot?.slot_start ? new Date(slot.slot_start).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A'
       const slotTime = slot?.slot_start && slot?.slot_end 
         ? `${new Date(slot.slot_start).toLocaleTimeString()} - ${new Date(slot.slot_end).toLocaleTimeString()}`
         : 'N/A'

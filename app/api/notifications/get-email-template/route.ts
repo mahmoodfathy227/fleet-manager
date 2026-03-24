@@ -126,7 +126,7 @@ This is an automated notification regarding compliance certificate expiry.
 **Certificate Details:**
 - Certificate: ${notification.certificate_name}
 - Entity: ${entityName}
-- Expiry Date: ${new Date(notification.expiry_date).toLocaleDateString()}
+- Expiry Date: ${new Date(notification.expiry_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
 - Status: ${notification.days_until_expiry < 0 
   ? `EXPIRED ${Math.abs(notification.days_until_expiry)} days ago` 
   : `Expires in ${notification.days_until_expiry} days`}

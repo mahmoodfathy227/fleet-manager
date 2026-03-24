@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatDateTime } from '@/lib/utils'
 import {
   ArrowLeft,
   Pencil,
@@ -137,18 +137,6 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
 
   const getFieldAuditInfo = (fieldName: string) => {
     return fieldAudit[fieldName]
-  }
-
-  const formatDateTime = (dateString: string | null) => {
-    if (!dateString) return 'N/A'
-    const date = new Date(dateString)
-    return date.toLocaleString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
   }
 
   const formatTime = (time: string | null): string => {

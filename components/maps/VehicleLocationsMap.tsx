@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { loadGoogleMapsScript } from '@/lib/google-maps-loader'
+import { formatDateTime } from '@/lib/utils'
 
 interface VehicleLocation {
   id: number
@@ -145,7 +146,7 @@ export function VehicleLocationsMap({ locations, apiKey }: VehicleLocationsMapPr
     })
 
     // Format last updated date
-    const lastUpdated = new Date(location.last_updated).toLocaleString()
+    const lastUpdated = formatDateTime(location.last_updated)
 
     // Determine status badge
     let statusBadge = ''

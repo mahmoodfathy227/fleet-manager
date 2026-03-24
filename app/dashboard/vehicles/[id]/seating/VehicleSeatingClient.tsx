@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import Link from 'next/link'
 import { Pencil, X, Save, Copy } from 'lucide-react'
+import { formatDateTime } from '@/lib/utils'
 
 interface VehicleSeatingClientProps {
   vehicleId: string
@@ -320,8 +321,8 @@ export default function VehicleSeatingClient({
 
                 {/* Metadata */}
                 <div className="mt-6 pt-4 border-t border-slate-200 text-xs text-slate-500 space-y-1">
-                  <div>Created: {new Date(seatingPlan.created_at).toLocaleString()}</div>
-                  <div>Last Updated: {new Date(seatingPlan.updated_at).toLocaleString()}</div>
+                  <div>Created: {formatDateTime(seatingPlan.created_at)}</div>
+                  <div>Last Updated: {formatDateTime(seatingPlan.updated_at)}</div>
                 </div>
               </CardContent>
             </Card>

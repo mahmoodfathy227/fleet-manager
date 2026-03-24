@@ -176,7 +176,7 @@ function buildPreCheckReportHTML(check: VehiclePreCheck): string {
       <strong>Check date:</strong> ${escapeHtml(formatDate(check.check_date))} &nbsp;|&nbsp;
       <strong>Completed:</strong> ${escapeHtml(formatDateTime(check.completed_at))}
     </div>
-    <div class="meta">Generated: ${new Date().toLocaleString()}</div>
+    <div class="meta">Generated: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
   </div>
   <div class="section">
     <div class="section-title">Check Results</div>

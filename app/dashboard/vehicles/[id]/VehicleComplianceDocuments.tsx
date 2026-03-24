@@ -430,7 +430,7 @@ export default function VehicleComplianceDocuments({ vehicleId }: { vehicleId: n
                                     {doc.file_name || 'File'}
                                   </p>
                                   <p className="text-xs text-gray-500">
-                                    {new Date(doc.uploaded_at).toLocaleString()}
+                                    {formatDateTime(doc.uploaded_at)}
                                   </p>
                                 </div>
                               </div>
@@ -541,7 +541,7 @@ export default function VehicleComplianceDocuments({ vehicleId }: { vehicleId: n
                                 {doc.file_name || 'File'}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {doc.doc_type ? `${doc.doc_type} · ` : ''}{new Date(doc.uploaded_at).toLocaleString()}
+                                {doc.doc_type ? `${doc.doc_type} · ` : ''}{formatDateTime(doc.uploaded_at)}
                               </p>
                             </div>
                           </div>

@@ -175,7 +175,7 @@ export default function ProfilePage() {
           <p className="text-slate-500 text-sm">Manage your account and security</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          <span>{now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+          <span>{now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}</span>
         </div>
       </div>
 

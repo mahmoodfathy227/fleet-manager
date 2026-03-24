@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
 import { RefreshCw, Search, Copy, Pencil, Power, Trash2, Plus } from 'lucide-react'
+import { formatDate } from '@/lib/utils'
 
 type DocumentRequirement = {
   id: string
@@ -506,7 +507,7 @@ export default function DocumentRequirementsPage() {
                         <td className="py-3 pr-4 text-slate-600">{req.renewal_notice_days ?? '—'}</td>
                         <td className="py-3 pr-4 text-slate-600">{req.is_active ? 'Yes' : 'No'}</td>
                         <td className="py-3 pr-4 text-slate-600">
-                          {req.updated_at ? new Date(req.updated_at).toLocaleDateString() : '—'}
+                          {req.updated_at ? formatDate(req.updated_at) : '—'}
                         </td>
                         <td className="py-3 pr-4">
                           <div className="flex items-center gap-2">

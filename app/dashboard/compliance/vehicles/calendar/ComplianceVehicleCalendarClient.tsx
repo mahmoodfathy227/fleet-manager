@@ -373,7 +373,7 @@ function DayDocumentCard({
         </div>
         <div>
           <span className="text-slate-500">Created:</span>{' '}
-          <span>{doc.created_at ? format(parseISO(doc.created_at), 'd MMM yyyy') : '—'}</span>
+          <span>{doc.created_at ? format(parseISO(doc.created_at), 'd MMMM yyyy') : '—'}</span>
         </div>
         {doc.source && (
           <div>

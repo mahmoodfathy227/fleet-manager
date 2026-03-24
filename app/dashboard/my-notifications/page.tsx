@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Bell, Loader2, ChevronRight, Mail } from 'lucide-react'
 import Link from 'next/link'
 import { getFunctionsUrl } from '@/lib/firebase-functions'
+import { formatDateTime } from '@/lib/utils'
 
 type InboxItem = {
   notificationId: string
@@ -141,7 +142,7 @@ export default function MyNotificationsPage() {
                       <p className="mt-1 line-clamp-2 text-sm text-slate-600">{item.body}</p>
                       <p className="mt-2 text-xs text-slate-400">
                         {item.createdAt
-                          ? new Date(item.createdAt).toLocaleString()
+                          ? formatDateTime(item.createdAt)
                           : ''}
                       </p>
                     </div>

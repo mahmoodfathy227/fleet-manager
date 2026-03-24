@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { FileText, Upload, ExternalLink } from 'lucide-react'
+import { formatDate } from '@/lib/utils'
 
 interface LogbookDoc {
   id: number
@@ -149,7 +150,7 @@ export default function VehicleLogbook({ vehicleId }: { vehicleId: number }) {
                     <FileText className="h-4 w-4 text-slate-400 shrink-0" />
                     <span className="text-sm font-medium text-slate-900 truncate">{doc.file_name || 'Logbook'}</span>
                     <span className="text-xs text-slate-400 shrink-0">
-                      {new Date(doc.uploaded_at).toLocaleDateString()}
+                      {formatDate(doc.uploaded_at)}
                     </span>
                   </div>
                   {url && (

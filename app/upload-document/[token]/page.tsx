@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Camera, Upload, FileCheck, X, CheckCircle, AlertCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { formatDate } from '@/lib/utils'
 
 export default function UploadDocumentPage({ params }: { params: Promise<{ token: string }> }) {
   const router = useRouter()
@@ -472,7 +473,7 @@ export default function UploadDocumentPage({ params }: { params: Promise<{ token
                 <h3 className="font-semibold text-gray-900 mb-2">Certificate Information</h3>
                 <div className="space-y-1 text-sm text-gray-700">
                   <p><strong>Certificate:</strong> {notification.certificate_name}</p>
-                  <p><strong>Expiry Date:</strong> {new Date(notification.expiry_date).toLocaleDateString()}</p>
+                  <p><strong>Expiry Date:</strong> {formatDate(notification.expiry_date)}</p>
                   <p><strong>Status:</strong> {
                     notification.days_until_expiry < 0
                       ? `Expired ${Math.abs(notification.days_until_expiry)} days ago`
