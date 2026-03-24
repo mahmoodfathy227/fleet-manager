@@ -6,6 +6,21 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import Image from 'next/image'
 
+function formatAuthNetworkError(message: string): string {
+  if (
+    message === 'Load failed' ||
+    message === 'Failed to fetch' ||
+    message.includes('NetworkError when attempting to fetch resource')
+  ) {
+    return (
+      'Could not reach Supabase. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local. ' +
+      'If you run npm start, run npm run build again after setting those variables (they are embedded at build time). ' +
+      'Confirm your Supabase project is active and the URL has no typo.'
+    )
+  }
+  return message
+}
+
 function LoginPageContent() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -112,8 +127,10 @@ function LoginPageContent() {
         router.push('/dashboard')
         router.refresh()
       }
-    } catch (error: any) {
-      setError(error.message || 'An error occurred during login')
+    } catch (error: unknown) {
+      console.debug('[fleet login] sign-in error', error)
+      const raw = error instanceof Error ? error.message : 'An error occurred during login'
+      setError(formatAuthNetworkError(raw || 'An error occurred during login'))
     } finally {
       setLoading(false)
     }
@@ -130,8 +147,10 @@ function LoginPageContent() {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), { redirectTo })
       if (resetError) throw resetError
       setForgotSuccess('Check your email for a link to reset your password. The link will expire in 1 hour.')
-    } catch (err: any) {
-      setForgotError(err?.message || 'Failed to send reset email.')
+    } catch (err: unknown) {
+      console.debug('[fleet login] forgot-password error', err)
+      const raw = err instanceof Error ? err.message : 'Failed to send reset email.'
+      setForgotError(formatAuthNetworkError(raw || 'Failed to send reset email.'))
     } finally {
       setForgotLoading(false)
     }

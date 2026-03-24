@@ -30,6 +30,7 @@ export const ROUTE_PERMISSIONS: Record<string, string | string[]> = {
 
   // Vehicles
   '/dashboard/vehicles': 'vehicles.read',
+  '/dashboard/live-map': 'vehicles.read',
   '/dashboard/vehicle-locations': 'vehicles.read',
 
   // Maintenance

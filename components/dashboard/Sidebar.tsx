@@ -40,6 +40,7 @@ import {
   FileText,
   Wrench,
   User,
+  Monitor,
 } from 'lucide-react'
 import { useNotificationCount } from '@/hooks/useNotificationCount'
 import { useComplianceNotificationCount } from '@/hooks/useComplianceNotificationCount'
@@ -60,6 +61,7 @@ interface NavGroup {
 
 const topLevelItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Live Map', href: '/dashboard/live-map', icon: Monitor },
   { name: 'Calendar', href: '/dashboard/calendar', icon: CalendarDays },
   { name: 'Compliance', href: '/dashboard/compliance', icon: ClipboardCheck },
   { name: 'Route Activity', href: '/dashboard/route-activity', icon: Activity },

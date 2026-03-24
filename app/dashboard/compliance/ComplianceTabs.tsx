@@ -40,7 +40,7 @@ export function ComplianceTabs() {
           Cases
         </Link>
         <Link
-          href="/dashboard/compliance/vehicles/calendar"
+          href="/dashboard/calendar?tab=vehicles"
           prefetch={true}
           className={cn(
             'flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-t-lg border-b-2 transition-colors',
