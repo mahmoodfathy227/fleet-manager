@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import {
-  ArrowLeft, Pencil, CheckCircle, Clock, XCircle,
-  FileText, Eye, Car,
-  Timer, User, Phone, Mail
+  ArrowLeft, Pencil, AlertTriangle, CheckCircle, Clock, XCircle,
+  FileText, GraduationCap, Download, ExternalLink, Eye, Car,
+  Timer, Calendar, Shield, CreditCard, User, Phone, Mail
 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { notFound } from 'next/navigation'
@@ -82,6 +82,49 @@ interface VehicleAssignment {
   } | null
 }
 
+// Helper to calculate days remaining
+function getDaysRemaining(expiryDate: string | null): number | null {
+  if (!expiryDate) return null
+  const today = new Date()
+  const expiry = new Date(expiryDate)
+  const diffTime = expiry.getTime() - today.getTime()
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  return diffDays
+}
+
+// Helper to get status badge for expiry dates
+function getExpiryBadge(daysRemaining: number | null) {
+  if (daysRemaining === null) {
+    return { icon: null, label: 'Not Set', color: 'bg-slate-100 text-slate-600' }
+  }
+  if (daysRemaining < 0) {
+    return {
+      icon: XCircle,
+      label: `Expired (${Math.abs(daysRemaining)} days)`,
+      color: 'bg-red-50 text-red-700 border-red-200'
+    }
+  }
+  if (daysRemaining <= 14) {
+    return {
+      icon: AlertTriangle,
+      label: `${daysRemaining} days left`,
+      color: 'bg-amber-50 text-amber-700 border-amber-200'
+    }
+  }
+  if (daysRemaining <= 30) {
+    return {
+      icon: Clock,
+      label: `${daysRemaining} days left`,
+      color: 'bg-yellow-50 text-yellow-700 border-yellow-200'
+    }
+  }
+  return {
+    icon: CheckCircle,
+    label: `${daysRemaining} days left`,
+    color: 'bg-green-50 text-green-700 border-green-200'
+  }
+}
+
 export function DriverDetailClient({ id }: { id: string }) {
   const [driver, setDriver] = useState<Driver | null>(null)
   const [loading, setLoading] = useState(true)
@@ -90,10 +133,6 @@ export function DriverDetailClient({ id }: { id: string }) {
   const [idBadgePhotoUrl, setIdBadgePhotoUrl] = useState<string | null>(null)
   const [tardinessReports, setTardinessReports] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'daily-checks'>('overview')
-
-  useEffect(() => {
-    console.debug('[fleet] DriverDetailClient: Requirements + Compliance Status sections removed from overview UI')
-  }, [])
 
   useEffect(() => {
     async function fetchDriver() {
@@ -215,6 +254,17 @@ export function DriverDetailClient({ id }: { id: string }) {
 
   const employee = driver.employees
   const pendingTardiness = tardinessReports.length
+
+  const certificates = [
+    { label: 'TAS Badge', date: driver.tas_badge_expiry_date, ref: driver.tas_badge_number, important: true },
+    // Removed Taxi Badge as per logic in Edit page (often redundant or tracked on vehicle) but keeping if present
+    ...(driver.taxi_badge_expiry_date ? [{ label: 'Taxi Badge', date: driver.taxi_badge_expiry_date, ref: driver.taxi_badge_number }] : []),
+    { label: 'DBS Check', date: null, ref: driver.dbs_number, status: driver.dbs_number ? 'Active' : 'Missing' },
+    { label: 'Driving License', date: driver.driving_license_expiry_date, important: true },
+    { label: 'CPC', date: driver.cpc_expiry_date },
+    { label: 'First Aid', date: driver.first_aid_certificate_expiry_date },
+    { label: 'Passport', date: driver.passport_expiry_date },
+  ]
 
   const trainingStatus = [
     { label: 'Safeguarding', completed: driver.safeguarding_training_completed, date: driver.safeguarding_training_date },
@@ -381,10 +431,74 @@ export function DriverDetailClient({ id }: { id: string }) {
             </CardContent>
           </Card>
 
+          {/* Checklists */}
+          <Card>
+            <CardContent className="p-4 space-y-2">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Requirements</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'PSV License', active: driver.psv_license },
+                  { label: 'Self Employed', active: driver.self_employed === true },
+                  { label: 'Photo Taken', active: driver.photo_taken },
+                  { label: 'Private Badge', active: driver.private_hire_badge },
+                  { label: 'Birth Cert', active: driver.birth_certificate },
+                ].map((item, i) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs p-2 rounded border ${item.active ? 'bg-green-50 border-green-100 text-green-800' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                    {item.active ? <CheckCircle className="h-3 w-3" /> : <div className="h-3 w-3 rounded-full border border-slate-300" />}
+                    {item.label}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
         </div>
 
-        {/* Right Column: Training & documents (8 cols) */}
+        {/* Right Column: Certificates & Training (8 cols) */}
         <div className="lg:col-span-8 space-y-4">
+
+          {/* Critical Expiring Certificates */}
+          <Card className="overflow-hidden">
+            <div className="p-3 border-b bg-slate-50/50 flex justify-between items-center">
+              <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                <Shield className="h-4 w-4" /> Compliance Status
+              </h3>
+              <Link href={`/dashboard/drivers/${id}/edit?tab=certificates`}>
+                <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600 hover:text-blue-700">Manage</Button>
+              </Link>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {certificates.map((cert, i) => {
+                const days = getDaysRemaining(cert.date)
+                const status = getExpiryBadge(days)
+
+                // Don't show non-important ones if they are not set, to save space, unless they are expired? 
+                // Actually show all for completeness in dense view
+                if (!cert.date && !cert.ref && !cert.important && !cert.status) return null
+
+                return (
+                  <div key={i} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-slate-700">{cert.label}</span>
+                      {cert.ref && <span className="text-xs text-slate-500 font-mono">{cert.ref}</span>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {cert.date && (
+                        <div className="text-right">
+                          <p className="text-xs font-medium text-slate-900">{formatDate(cert.date)}</p>
+                          <p className="text-[10px] text-slate-400">Expiry Date</p>
+                        </div>
+                      )}
+                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}>
+                        {status.icon && <status.icon className="h-3 w-3" />}
+                        {status.label}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
 
           {/* Training Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

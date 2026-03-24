@@ -6,16 +6,8 @@ const PLACEHOLDER_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.build-placeholder-not-for-auth'
 
 function getBrowserSupabaseConfig(): { url: string; key: string } {
-  const url = (
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.SUPABASE_URL ||
-    ''
-  ).trim()
-  const key = (
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    ''
-  ).trim()
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()
   if (!url || !key) {
     console.debug('[fleet supabase] createClient: missing env', { hasUrl: Boolean(url), hasKey: Boolean(key) })
     if (typeof window !== 'undefined') {

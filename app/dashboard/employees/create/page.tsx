@@ -443,11 +443,30 @@ export default function CreateEmployeePage() {
     loadSchools()
   }, [])
 
-  useEffect(() => {
-    console.debug(
-      '[fleet] employees/create: training / checklist / additional-docs sections removed from UI; submit still uses defaultDriverForm/defaultPAForm for those fields'
-    )
-  }, [])
+  const CompactFileUploadDriver = ({ id, file }: { id: string; file: File | null }) => (
+    <div className="flex items-center gap-2 mt-1 w-full">
+      <label htmlFor={`driver_${id}`} className="cursor-pointer bg-[#023E8A] text-white px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider hover:bg-[#023E8A]/90 shrink-0 flex items-center gap-1">
+        Upload
+      </label>
+      <div className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-md text-[10px] text-slate-500 truncate flex items-center gap-2">
+        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${file ? 'bg-green-500' : 'bg-slate-300'}`} />
+        <span className={`truncate ${file ? 'text-slate-700 font-medium' : 'text-slate-400 italic'}`}>{file?.name || 'No file selected'}</span>
+      </div>
+      <input type="file" id={`driver_${id}`} accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setDriverFile(id, e.target.files?.[0] || null)} />
+    </div>
+  )
+  const CompactFileUploadPA = ({ id, file }: { id: string; file: File | null }) => (
+    <div className="flex items-center gap-2 mt-1 w-full">
+      <label htmlFor={`pa_${id}`} className="cursor-pointer bg-[#023E8A] text-white px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider hover:bg-[#023E8A]/90 shrink-0 flex items-center gap-1">
+        Upload
+      </label>
+      <div className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-md text-[10px] text-slate-500 truncate flex items-center gap-2">
+        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${file ? 'bg-green-500' : 'bg-slate-300'}`} />
+        <span className={`truncate ${file ? 'text-slate-700 font-medium' : 'text-slate-400 italic'}`}>{file?.name || 'No file selected'}</span>
+      </div>
+      <input type="file" id={`pa_${id}`} accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setPAFile(id, e.target.files?.[0] || null)} />
+    </div>
+  )
 
   return (
     <div className="max-w-[73.6rem] mx-auto space-y-4">
@@ -698,8 +717,29 @@ export default function CreateEmployeePage() {
                         </div>
                       </CardContent>
                     </Card>
+                    <Card className="flex-1">
+                      <CardContent className="p-4">
+                        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3 border-b pb-2">Checklist</h2>
+                        <div className="space-y-2">
+                          {[
+                            { id: 'psv_license', label: 'PSV License' },
+                            { id: 'private_hire_badge', label: 'Private Hire Badge' },
+                            { id: 'dbs_number', label: 'DBS Checked', note: 'Enter number below in Certificates' },
+                          ].map((item) => (
+                            <div key={item.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors">
+                              <Label htmlFor={item.id} className="text-sm text-slate-700 cursor-pointer flex-1">{item.label}</Label>
+                              {item.id === 'dbs_number' ? (
+                                <span className="text-xs text-slate-500">Use Certificates</span>
+                              ) : (
+                                <input type="checkbox" id={item.id} name={item.id} checked={(driverForm as Record<string, unknown>)[item.id] as boolean} onChange={handleDriverInput} className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                  <div className="lg:col-span-9 flex flex-col gap-4">
+                  <div className="lg:col-span-5 flex flex-col gap-4">
                     <Card className="h-full">
                       <CardContent className="p-4 space-y-4">
                         <div className="flex items-center justify-between border-b pb-2">
@@ -710,6 +750,60 @@ export default function CreateEmployeePage() {
                           </div>
                         </div>
                         <DynamicCertificatesForm subjectType="driver" formData={driverCertificatesFormData} fileUploads={driverCertificatesFileUploads} fieldErrors={fieldErrors} onFormDataChange={handleDriverCertificateFormDataChange} onFileChange={handleDriverCertificateFileChange} minDate={minDate} maxDate={maxDate} />
+                      </CardContent>
+                    </Card>
+                  </div>
+                  <div className="lg:col-span-4 flex flex-col gap-4">
+                    <Card>
+                      <CardContent className="p-4 space-y-4">
+                        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Training Status</h2>
+                        <div className="space-y-3">
+                          {[
+                            { id: 'safeguarding_training', label: 'Safeguarding', completed: driverForm.safeguarding_training_completed, date: driverForm.safeguarding_training_date },
+                            { id: 'tas_pats_training', label: 'TAS PATS', completed: driverForm.tas_pats_training_completed, date: driverForm.tas_pats_training_date },
+                            { id: 'psa_training', label: 'PSA Training', completed: driverForm.psa_training_completed, date: driverForm.psa_training_date },
+                          ].map((t) => (
+                            <div key={t.id} className={`p-3 rounded-lg border text-sm ${t.completed ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className={`font-semibold ${t.completed ? 'text-green-800' : 'text-slate-600'}`}>{t.label}</span>
+                                <input type="checkbox" name={`${t.id}_completed`} checked={t.completed} onChange={handleDriverInput} className="rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                              </div>
+                              {t.completed && <input type="date" name={`${t.id}_date`} value={t.date} onChange={handleDriverInput} min={minDate} max="9999-12-31" className="w-full h-7 text-xs border-slate-200 rounded bg-white px-2" />}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="flex-1">
+                      <CardContent className="p-4 space-y-4">
+                        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Additional Docs</h2>
+                        <div className="grid grid-cols-1 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Utility Bill</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input type="date" name="utility_bill_date" value={driverForm.utility_bill_date} onChange={handleDriverInput} min={minDate} max="9999-12-31" className="h-7 text-xs" />
+                              <CompactFileUploadDriver id="utility_bill_file" file={driverFiles.utility_bill_file} />
+                            </div>
+                          </div>
+                          <div className="space-y-2 pt-2 border-t">
+                            <Label className="text-sm font-semibold">Additional Files</Label>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              {['Paper Licence', 'Birth Certificate', 'Marriage Certificate'].map((label) => {
+                                const key = label === 'Paper Licence' ? 'paper_licence_file' : label === 'Birth Certificate' ? 'birth_cert_file' : 'marriage_cert_file'
+                                return (
+                                  <div key={label} className="flex flex-col gap-1">
+                                    <span className="text-slate-500 truncate">{label}</span>
+                                    <CompactFileUploadDriver id={key} file={driverFiles[key]} />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          <div className="pt-2">
+                            <Label htmlFor="driver_additional_notes" className="text-sm font-semibold">Notes</Label>
+                            <textarea id="driver_additional_notes" name="additional_notes" value={driverForm.additional_notes} onChange={handleDriverInput} rows={3} className="w-full mt-1 rounded-md border-slate-300 text-sm focus:border-primary focus:ring-primary min-h-[80px]" placeholder="Private HR notes..." />
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
@@ -743,8 +837,23 @@ export default function CreateEmployeePage() {
                         </div>
                       </CardContent>
                     </Card>
+                    <Card className="flex-1">
+                      <CardContent className="p-4">
+                        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3 border-b pb-2">Checklist</h2>
+                        <div className="space-y-2">
+                          {[
+                            { id: 'birth_certificate', label: 'Birth Certificate' },
+                          ].map((item) => (
+                            <div key={item.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors">
+                              <Label htmlFor={item.id} className="text-sm text-slate-700 cursor-pointer flex-1">{item.label}</Label>
+                              <input type="checkbox" id={item.id} name={item.id} checked={(paForm as Record<string, unknown>)[item.id] as boolean} onChange={handlePAInput} className="rounded border-slate-300 text-primary focus:ring-primary" />
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                  <div className="lg:col-span-9 flex flex-col gap-4">
+                  <div className="lg:col-span-5 flex flex-col gap-4">
                     <Card className="h-full">
                       <CardContent className="p-4 space-y-4">
                         <div className="flex items-center justify-between border-b pb-2">
@@ -755,6 +864,59 @@ export default function CreateEmployeePage() {
                           </div>
                         </div>
                         <DynamicCertificatesForm subjectType="pa" formData={paCertificatesFormData} fileUploads={paCertificatesFileUploads} fieldErrors={fieldErrors} onFormDataChange={handlePaCertificateFormDataChange} onFileChange={handlePaCertificateFileChange} minDate={minDate} maxDate={maxDate} />
+                      </CardContent>
+                    </Card>
+                  </div>
+                  <div className="lg:col-span-4 flex flex-col gap-4">
+                    <Card>
+                      <CardContent className="p-4 space-y-4">
+                        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Training Status</h2>
+                        <div className="space-y-3">
+                          {[
+                            { id: 'safeguarding_training', label: 'Safeguarding', completed: paForm.safeguarding_training_completed, date: paForm.safeguarding_training_date },
+                            { id: 'tas_pats_training', label: 'TAS PATS', completed: paForm.tas_pats_training_completed, date: paForm.tas_pats_training_date },
+                          ].map((t) => (
+                            <div key={t.id} className={`p-3 rounded-lg border text-sm ${t.completed ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className={`font-semibold ${t.completed ? 'text-green-800' : 'text-slate-600'}`}>{t.label}</span>
+                                <input type="checkbox" name={`${t.id}_completed`} checked={t.completed} onChange={handlePAInput} className="rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                              </div>
+                              {t.completed && <input type="date" name={`${t.id}_date`} value={t.date} onChange={handlePAInput} min={minDate} max="9999-12-31" className="w-full h-7 text-xs border-slate-200 rounded bg-white px-2" />}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="flex-1">
+                      <CardContent className="p-4 space-y-4">
+                        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Additional Docs</h2>
+                        <div className="grid grid-cols-1 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Utility Bill</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input type="date" name="utility_bill_date" value={paForm.utility_bill_date} onChange={handlePAInput} min={minDate} max="9999-12-31" className="h-7 text-xs" />
+                              <CompactFileUploadPA id="utility_bill_file" file={paFiles.utility_bill_file} />
+                            </div>
+                          </div>
+                          <div className="space-y-2 pt-2 border-t">
+                            <Label className="text-sm font-semibold">Additional Files</Label>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              {['Paper Licence', 'Birth Certificate', 'Marriage Certificate'].map((label) => {
+                                const key = label === 'Paper Licence' ? 'paper_licence_file' : label === 'Birth Certificate' ? 'birth_cert_file' : 'marriage_cert_file'
+                                return (
+                                  <div key={label} className="flex flex-col gap-1">
+                                    <span className="text-slate-500 truncate">{label}</span>
+                                    <CompactFileUploadPA id={key} file={paFiles[key]} />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          <div className="pt-2">
+                            <Label htmlFor="pa_additional_notes" className="text-sm font-semibold">Notes</Label>
+                            <textarea id="pa_additional_notes" name="additional_notes" value={paForm.additional_notes} onChange={handlePAInput} rows={3} className="w-full mt-1 rounded-md border-slate-300 text-sm focus:border-primary focus:ring-primary min-h-[80px]" placeholder="Private HR notes..." />
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
