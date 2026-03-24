@@ -11,6 +11,7 @@ import RouteSessionsClient from './RouteSessionsClient'
 import RouteDetailClient from './RouteDetailClient'
 import RoutePointsManager from './RoutePointsManager'
 import RouteDocumentsCard from './RouteDocumentsCard'
+import RouteLiveTrackingPanel from './RouteLiveTrackingPanel'
 
 // Helper function to format time (HH:MM:SS to HH:MM)
 function formatTime(time: string | null): string {
@@ -156,6 +157,8 @@ export default async function ViewRoutePage({
       </div>
 
       <RouteDetailClient route={route} routeId={route.id} routePasList={routePasList} />
+
+      <RouteLiveTrackingPanel routeId={route.id} />
 
       <Card>
         <CardContent className="p-2.5">

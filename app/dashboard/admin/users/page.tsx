@@ -40,7 +40,6 @@ export default function AdminUsersPage() {
   const [formData, setFormData] = useState({ ...emptyForm })
   const [sendingResetForId, setSendingResetForId] = useState<number | null>(null)
   const [resetEmailMessage, setResetEmailMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
   const filteredUsers = useMemo(() => {
     if (!searchTerm.trim()) return users
     const term = searchTerm.toLowerCase()

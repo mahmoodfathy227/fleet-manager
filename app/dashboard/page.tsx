@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { Suspense } from 'react'
 import Link from 'next/link'
+import LiveOperationsPanel from './LiveOperationsPanel'
 import {
   Users, Car, School, Route, AlertCircle, UserCheck, MapPinned,
   ParkingCircle, Calendar, XCircle, Activity,
@@ -230,6 +231,8 @@ async function DashboardContent() {
           </div>
         </div>
       </div>
+
+      <LiveOperationsPanel />
 
       {/* Row 2: Main Grid - grows to fill space */}
       <div className="grid gap-4 lg:grid-cols-12 flex-1">
