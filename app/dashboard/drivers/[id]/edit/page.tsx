@@ -8,11 +8,14 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import { ArrowLeft, AlertCircle, Upload, CheckCircle } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Upload } from 'lucide-react'
 import { SubjectDocumentsChecklist } from '@/components/dashboard/SubjectDocumentsChecklist'
+import { toDateOnlyStringForInput } from '@/lib/utils'
 
 interface Driver {
   employee_id: number
+  tas_badge_number?: string | null
+  tas_badge_expiry_date?: string | null
   employees: {
     id: number
     full_name: string
@@ -73,6 +76,12 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
     loadDriver()
   }, [params.id])
 
+  useEffect(() => {
+    console.debug(
+      '[fleet] drivers/[id]/edit: Checklist + Additional Docs removed; dates use toDateOnlyStringForInput + TAS subject_documents sync on save'
+    )
+  }, [])
+
   const loadDriver = async () => {
     setLoading(true)
     const { data, error } = await supabase
@@ -99,14 +108,14 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
       spare_driver: (data as any).spare_driver || false,
       self_employed: (data as any).self_employed || false,
       tas_badge_number: data.tas_badge_number || '',
-      tas_badge_expiry_date: data.tas_badge_expiry_date ? data.tas_badge_expiry_date.split('T')[0] : '',
+      tas_badge_expiry_date: toDateOnlyStringForInput(data.tas_badge_expiry_date),
       dbs_number: data.dbs_number || '',
       psv_license: data.psv_license || false,
-      first_aid_certificate_expiry_date: data.first_aid_certificate_expiry_date ? data.first_aid_certificate_expiry_date.split('T')[0] : '',
-      passport_expiry_date: data.passport_expiry_date ? data.passport_expiry_date.split('T')[0] : '',
-      driving_license_expiry_date: data.driving_license_expiry_date ? data.driving_license_expiry_date.split('T')[0] : '',
-      cpc_expiry_date: data.cpc_expiry_date ? data.cpc_expiry_date.split('T')[0] : '',
-      utility_bill_date: data.utility_bill_date ? data.utility_bill_date.split('T')[0] : '',
+      first_aid_certificate_expiry_date: toDateOnlyStringForInput(data.first_aid_certificate_expiry_date),
+      passport_expiry_date: toDateOnlyStringForInput(data.passport_expiry_date),
+      driving_license_expiry_date: toDateOnlyStringForInput(data.driving_license_expiry_date),
+      cpc_expiry_date: toDateOnlyStringForInput(data.cpc_expiry_date),
+      utility_bill_date: toDateOnlyStringForInput(data.utility_bill_date),
       birth_certificate: data.birth_certificate || false,
       marriage_certificate: data.marriage_certificate || false,
       photo_taken: data.photo_taken || false,
@@ -202,21 +211,25 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
         }
       }
 
+      const tasExpiryForDb = toDateOnlyStringForInput(formData.tas_badge_expiry_date) || null
+
       const { error: updateError } = await supabase
         .from('drivers')
         .update({
           spare_driver: formData.spare_driver,
           self_employed: formData.self_employed,
           tas_badge_number: formData.tas_badge_number || null,
-          tas_badge_expiry_date: formData.tas_badge_expiry_date || null,
+          tas_badge_expiry_date: tasExpiryForDb,
           // Removed Taxi Badge as per previous file logic (tracked on vehicle)
           dbs_number: formData.dbs_number || null,
           psv_license: formData.psv_license,
-          first_aid_certificate_expiry_date: formData.first_aid_certificate_expiry_date || null,
-          passport_expiry_date: formData.passport_expiry_date || null,
-          driving_license_expiry_date: formData.driving_license_expiry_date || null,
-          cpc_expiry_date: formData.cpc_expiry_date || null,
-          utility_bill_date: formData.utility_bill_date || null,
+          first_aid_certificate_expiry_date:
+            toDateOnlyStringForInput(formData.first_aid_certificate_expiry_date) || null,
+          passport_expiry_date: toDateOnlyStringForInput(formData.passport_expiry_date) || null,
+          driving_license_expiry_date:
+            toDateOnlyStringForInput(formData.driving_license_expiry_date) || null,
+          cpc_expiry_date: toDateOnlyStringForInput(formData.cpc_expiry_date) || null,
+          utility_bill_date: toDateOnlyStringForInput(formData.utility_bill_date) || null,
           birth_certificate: formData.birth_certificate,
           marriage_certificate: formData.marriage_certificate,
           photo_taken: formData.photo_taken,
@@ -229,6 +242,44 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
         .eq('employee_id', params.id)
 
       if (updateError) throw updateError
+
+      // Keep compliance subject_documents (drives employees.can_work) aligned with legacy drivers columns
+      const { data: tasReq } = await supabase
+        .from('document_requirements')
+        .select('id')
+        .eq('subject_type', 'driver')
+        .eq('code', 'TAS')
+        .maybeSingle()
+
+      if (tasReq?.id && driver) {
+        const { data: tasSubjectRow } = await supabase
+          .from('subject_documents')
+          .select('id')
+          .eq('subject_type', 'driver')
+          .eq('driver_employee_id', driver.employee_id)
+          .eq('requirement_id', tasReq.id)
+          .maybeSingle()
+
+        if (tasSubjectRow?.id) {
+          const patch: Record<string, string | null> = {
+            expiry_date: tasExpiryForDb,
+            certificate_number: formData.tas_badge_number?.trim() || null,
+            status: tasExpiryForDb ? 'valid' : 'missing',
+          }
+          const { error: sdErr } = await supabase
+            .from('subject_documents')
+            .update(patch)
+            .eq('id', tasSubjectRow.id)
+          if (sdErr) {
+            console.error('[fleet] drivers edit: TAS subject_documents sync failed', sdErr)
+          } else {
+            console.debug('[fleet] drivers edit: synced TAS subject_document expiry + number', {
+              employee_id: driver.employee_id,
+              expiry_date: tasExpiryForDb,
+            })
+          }
+        }
+      }
 
       // Audit log
       await fetch('/api/audit', {
@@ -353,8 +404,7 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
         <div className="h-16 bg-slate-200 rounded-md w-full mb-6" />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-3 h-96 bg-slate-200 rounded-lg" />
-          <div className="lg:col-span-5 h-96 bg-slate-200 rounded-lg" />
-          <div className="lg:col-span-4 h-96 bg-slate-200 rounded-lg" />
+          <div className="lg:col-span-9 h-96 bg-slate-200 rounded-lg" />
         </div>
       </div>
     )
@@ -466,39 +516,10 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
               </div>
             </CardContent>
           </Card>
-
-          <Card className="flex-1">
-            <CardContent className="p-4">
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3 border-b pb-2">Checklist</h2>
-              <div className="space-y-2">
-                {[
-                  { id: 'psv_license', label: 'PSV License' },
-                  { id: 'self_employed', label: 'Self Employed' },
-                  { id: 'private_hire_badge', label: 'Private Hire Badge' },
-                  { id: 'dbs_check', label: 'DBS Checked', warning: 'Requires valid number' }, // Logic check not exact prop but visual
-                  // Since dbs_check isn't a prop in formData, map logic if needed or skip.
-                  // Let's use actual props:
-                ].filter(x => x.id !== 'dbs_check').map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors">
-                    <Label htmlFor={item.id} className="text-sm text-slate-700 cursor-pointer flex-1">{item.label}</Label>
-                    <input
-                      type="checkbox"
-                      id={item.id}
-                      name={item.id}
-                      checked={formData[item.id as keyof typeof formData] as boolean}
-                      onChange={handleInputChange}
-                      className="rounded border-slate-300 text-primary focus:ring-primary"
-                    />
-                  </div>
-                ))}
-                {/* Manual check for DBS visual consistency if wanted, otherwise rely on Number input */}
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Column 2: Core Certificates (Center) */}
-        <div className="lg:col-span-5 flex flex-col gap-4 h-full">
+        {/* Column 2: Core Certificates */}
+        <div className="lg:col-span-9 flex flex-col gap-4 h-full">
           <Card className="h-full">
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between border-b pb-2">
@@ -581,61 +602,6 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
                   fileId="passport_file"
                   fileVal={fileUploads.passport_file}
                 />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Column 3: Docs (Right) */}
-        <div className="lg:col-span-4 flex flex-col gap-4 h-full">
-          <Card className="flex-1">
-            <CardContent className="p-4 space-y-4">
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Additional Docs</h2>
-
-              <div className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Utility Bill</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input type="date" name="utility_bill_date" value={formData.utility_bill_date} onChange={handleInputChange} max="9999-12-31" className="h-7 text-xs" />
-                    <CompactFileUpload id="utility_bill_file" onChange={handleFileChange} file={fileUploads.utility_bill_file} />
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2 border-t">
-                  <Label className="text-sm font-semibold">Additional Files</Label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {['Paper Licence', 'Birth Certificate', 'Marriage Certificate'].map((label, i) => {
-                      const fileKey = {
-                        'Paper Licence': 'paper_licence_file',
-                        'Birth Certificate': 'birth_cert_file',
-                        'Marriage Certificate': 'marriage_cert_file'
-                      }[label] || 'unknown'
-
-                      // Need to get state from fileUploads dynamically
-                      const currentFile = fileUploads[fileKey as keyof typeof fileUploads]
-
-                      return (
-                        <div key={label} className="flex flex-col gap-1">
-                          <span className="text-slate-500 truncate">{label}</span>
-                          <CompactFileUpload id={fileKey} onChange={handleFileChange} file={currentFile} />
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <Label htmlFor="additional_notes" className="text-sm font-semibold">Notes</Label>
-                  <textarea
-                    id="additional_notes"
-                    name="additional_notes"
-                    value={formData.additional_notes}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="w-full mt-1 rounded-md border-slate-300 text-sm focus:border-primary focus:ring-primary h-full min-h-[80px]"
-                    placeholder="Private HR notes..."
-                  />
-                </div>
               </div>
             </CardContent>
           </Card>

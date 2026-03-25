@@ -50,6 +50,26 @@ export function formatDateForInput(date: string | Date | null): string {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * Calendar date as YYYY-MM-DD for <input type="date"> and Postgres DATE columns.
+ * Prefers the literal calendar day from ISO-like strings (avoids UTC/local drift on date-only values).
+ * Handles "2026-01-05T00:00:00+00:00" and "2026-01-05 00:00:00" (split on T alone fails the latter).
+ */
+export function toDateOnlyStringForInput(date: string | Date | null | undefined): string {
+  if (date == null || date === '') return ''
+  if (typeof date === 'string') {
+    const m = date.trim().match(/^(\d{4}-\d{2}-\d{2})/)
+    if (m) return m[1]
+  }
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    const y = date.getFullYear()
+    const mo = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${mo}-${d}`
+  }
+  return ''
+}
+
 /** Format for input[type="datetime-local"]: YYYY-MM-DDThh:mm */
 export function formatDateTimeForInput(date: string | Date | null): string {
   if (!date) return ''

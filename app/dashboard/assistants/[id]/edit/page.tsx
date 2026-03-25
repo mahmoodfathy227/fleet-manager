@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import { ArrowLeft, AlertCircle, Upload, CheckCircle, Clock } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Upload } from 'lucide-react'
 import DeletePAButton from '../DeletePAButton'
 import { SubjectDocumentsChecklist } from '@/components/dashboard/SubjectDocumentsChecklist'
 
@@ -89,6 +89,12 @@ export default function EditPassengerAssistantPage({ params }: { params: { id: s
   useEffect(() => {
     loadAssistant()
   }, [params.id])
+
+  useEffect(() => {
+    console.debug(
+      '[EditPassengerAssistant] Checklist + Additional Docs removed from edit UI; loaded formData still saves for those DB fields.'
+    )
+  }, [])
 
   const loadAssistant = async () => {
     setLoading(true)
@@ -471,34 +477,10 @@ export default function EditPassengerAssistantPage({ params }: { params: { id: s
               </div>
             </CardContent>
           </Card>
-
-          <Card className="flex-1">
-            <CardContent className="p-4">
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3 border-b pb-2">Checklist</h2>
-              <div className="space-y-2">
-                {[
-                  { id: 'dbs_check', label: 'DBS Checked', warning: 'Requires valid number' },
-                  { id: 'birth_certificate', label: 'Birth Certificate' },
-                ].map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors">
-                    <Label htmlFor={item.id} className="text-sm text-slate-700 cursor-pointer flex-1">{item.label}</Label>
-                    <input
-                      type="checkbox"
-                      id={item.id}
-                      name={item.id}
-                      checked={formData[item.id as keyof typeof formData] as boolean}
-                      onChange={handleInputChange}
-                      className="rounded border-slate-300 text-primary focus:ring-primary"
-                    />
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Column 2: Certificates (Center) */}
-        <div className="lg:col-span-5 flex flex-col gap-4 h-full">
+        <div className="lg:col-span-6 flex flex-col gap-4 h-full">
           <Card className="h-full">
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between border-b pb-2">
@@ -568,8 +550,8 @@ export default function EditPassengerAssistantPage({ params }: { params: { id: s
           </Card>
         </div>
 
-        {/* Column 3: Docs & Training (Right) */}
-        <div className="lg:col-span-4 flex flex-col gap-4 h-full">
+        {/* Column 3: Training (Right) */}
+        <div className="lg:col-span-3 flex flex-col gap-4 h-full">
           <Card>
             <CardContent className="p-4 space-y-4">
               <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Training Status</h2>
@@ -613,35 +595,6 @@ export default function EditPassengerAssistantPage({ params }: { params: { id: s
                     )}
                   </div>
                 ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="flex-1">
-            <CardContent className="p-4 space-y-4">
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-2">Additional Docs</h2>
-
-              <div className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Utility Bill</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input type="date" name="utility_bill_date" value={formData.utility_bill_date} onChange={handleInputChange} max="9999-12-31" className="h-7 text-xs" />
-                    <CompactFileUpload id="utility_bill_file" onChange={handleFileChange} file={fileUploads.utility_bill_file} />
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <Label htmlFor="additional_notes" className="text-sm font-semibold">Notes</Label>
-                  <textarea
-                    id="additional_notes"
-                    name="additional_notes"
-                    value={formData.additional_notes}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="w-full mt-1 rounded-md border-slate-300 text-sm focus:border-primary focus:ring-primary h-full min-h-[80px]"
-                    placeholder="Private HR notes..."
-                  />
-                </div>
               </div>
             </CardContent>
           </Card>
