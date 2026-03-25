@@ -170,6 +170,15 @@ export default function PassengerDetailClientFull({ passenger, incidents, parent
                                             <p className="text-sm font-bold text-slate-900">{passenger.seat_number || 'Any'}</p>
                                         </div>
                                     </div>
+                                    <div className="col-span-2 flex items-center gap-3 p-3 rounded-lg border border-slate-100 bg-slate-50/50">
+                                        <div className="h-8 w-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 shadow-sm">
+                                            <span className="text-xs font-bold">PI</span>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-slate-400">Personal Item</p>
+                                            <p className="text-sm font-bold text-slate-900">{passenger.personal_item || '—'}</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </CardContent>
