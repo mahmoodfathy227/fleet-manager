@@ -4,7 +4,7 @@ import { Suspense } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { TableSkeleton } from '@/components/ui/Skeleton'
-import { Eye, Plus, Pencil, UserCheck, CheckCircle, XCircle } from 'lucide-react'
+import { Eye, Pencil, UserCheck, CheckCircle, XCircle } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { AssistantSearchFilters } from './AssistantSearchFilters'
 
@@ -177,24 +177,18 @@ export default async function AssistantsPage({
     can_work: params?.can_work,
   }
 
+  console.debug('[fleet] dashboard/assistants page: Add Passenger Assistant header button removed')
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/20">
-            <UserCheck className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Passenger Assistants</h1>
-            <p className="text-sm text-slate-500">View all passenger assistants and their certifications</p>
-          </div>
+      <div className="flex items-center gap-4">
+        <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/20">
+          <UserCheck className="h-6 w-6 text-white" />
         </div>
-        <Link href="/dashboard/assistants/create" prefetch={true}>
-          <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/25">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Passenger Assistant
-          </Button>
-        </Link>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Passenger Assistants</h1>
+          <p className="text-sm text-slate-500">View all passenger assistants and their certifications</p>
+        </div>
       </div>
 
       <Suspense fallback={<div className="h-10 w-full max-w-2xl rounded-lg bg-slate-100 animate-pulse" />}>
