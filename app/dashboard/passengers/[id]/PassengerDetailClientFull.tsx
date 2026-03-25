@@ -16,6 +16,7 @@ import EditSENRequirementsSection from './EditSENRequirementsSection'
 import AddIncidentSection from './AddIncidentSection'
 import IncidentDocumentUpload from './IncidentDocumentUpload'
 import PassengerDetailClient from './PassengerDetailClient'
+import PassengerDocumentsCard from './PassengerDocumentsCard'
 
 interface Passenger {
     id: number
@@ -315,6 +316,8 @@ export default function PassengerDetailClientFull({ passenger, incidents, parent
                         </Card>
 
                     </div>
+
+                    <PassengerDocumentsCard passengerId={passenger.id} />
 
                 </div>
             </div>
