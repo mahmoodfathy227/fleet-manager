@@ -193,7 +193,7 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
     { label: 'Tax', date: vehicle.tax_date },
     ...(vehicle.vehicle_type === 'PHV' || vehicle.tail_lift ? [{ label: 'LOLER', date: vehicle.loler_expiry_date }] : []),
     ...(nextPmiDue ? [{ label: 'PMI Due', date: nextPmiDue, important: true }] : []),
-    { label: 'Registration Expiry', date: vehicle.registration_expiry_date },
+    { label: 'Plate Expiry', date: vehicle.registration_expiry_date },
     { label: 'First Aid', date: vehicle.first_aid_expiry },
     { label: 'Fire Extinguisher', date: vehicle.fire_extinguisher_expiry },
   ]
