@@ -227,6 +227,13 @@ export default function RouteDetailClient({ route, routeId, routePasList }: Rout
             }}
           />
 
+          <FieldWithAudit
+            fieldName="priority_vehicle"
+            label="Priority Vehicle"
+            value={route.priority_vehicle}
+            formatValue={(val) => val ? 'Yes' : 'No'}
+          />
+
           <div className="flex items-center justify-between py-0.5 gap-2">
             <dt className="text-xs text-slate-500">Created At</dt>
             <dd className="text-xs font-medium text-slate-900">{formatDate(route.created_at)}</dd>

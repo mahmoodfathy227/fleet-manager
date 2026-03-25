@@ -49,6 +49,7 @@ function EditRoutePageClient({ id }: { id: string }) {
     pm_start_time: '',
     pm_start_time_friday: '',
     days_of_week: [] as string[],
+    priority_vehicle: false,
   })
   const [selectedPaIds, setSelectedPaIds] = useState<number[]>([])
 
@@ -179,6 +180,7 @@ function EditRoutePageClient({ id }: { id: string }) {
           days_of_week: Array.isArray(routeResult.data.days_of_week)
             ? routeResult.data.days_of_week
             : [],
+          priority_vehicle: routeResult.data.priority_vehicle ?? false,
         })
       }
 
@@ -563,6 +565,7 @@ function EditRoutePageClient({ id }: { id: string }) {
         am_start_time: formData.am_start_time || null,
         pm_start_time: formData.pm_start_time || null,
         days_of_week: formData.days_of_week.length > 0 ? formData.days_of_week : null,
+        priority_vehicle: formData.priority_vehicle,
       }
 
       const { error: routeError } = await supabase
@@ -902,6 +905,19 @@ function EditRoutePageClient({ id }: { id: string }) {
                   )
                 })}
               </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-1">
+              <input
+                type="checkbox"
+                id="priority_vehicle"
+                checked={formData.priority_vehicle}
+                onChange={(e) => setFormData({ ...formData, priority_vehicle: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-[#023E8A] accent-[#023E8A] cursor-pointer"
+              />
+              <Label htmlFor="priority_vehicle" className="text-xs font-medium text-slate-600 cursor-pointer">
+                Priority Vehicle
+              </Label>
             </div>
           </div>
         </div>

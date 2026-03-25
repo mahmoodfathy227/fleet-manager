@@ -51,6 +51,7 @@ async function RoutesTable(filters?: { search?: string }) {
             <TableHead>ID</TableHead>
             <TableHead>Route Number</TableHead>
             <TableHead>School</TableHead>
+            <TableHead>Priority Vehicle</TableHead>
             <TableHead>Created At</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
@@ -58,7 +59,7 @@ async function RoutesTable(filters?: { search?: string }) {
         <TableBody>
           {routes.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center py-12">
+              <TableCell colSpan={6} className="text-center py-12">
                 <Route className="h-12 w-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-500 font-medium">No routes found</p>
                 <p className="text-sm text-slate-400">Add your first route to get started</p>
@@ -70,6 +71,12 @@ async function RoutesTable(filters?: { search?: string }) {
                 <TableCell className="text-slate-500">#{route.id}</TableCell>
                 <TableCell className="font-semibold text-slate-800">{route.route_number || `Route ${route.id}`}</TableCell>
                 <TableCell className="text-slate-600">{route.schools?.name || 'N/A'}</TableCell>
+                <TableCell>
+                  {route.priority_vehicle
+                    ? <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">Yes</span>
+                    : <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">No</span>
+                  }
+                </TableCell>
                 <TableCell className="text-slate-500">{formatDate(route.created_at)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">

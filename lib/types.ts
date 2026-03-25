@@ -65,6 +65,7 @@ export interface Route {
   school_id: number | null
   created_at: string
   updated_at: string
+  priority_vehicle?: boolean
 }
 
 export interface Passenger {
