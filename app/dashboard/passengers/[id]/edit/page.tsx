@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
 import { Card, CardContent } from '@/components/ui/Card'
 import { ConfirmDeleteCard } from '@/components/ui/ConfirmDeleteCard'
-import { ArrowLeft, Trash2, AlertCircle, MapPin, School as SchoolIcon, Bus, Users, Edit2 } from 'lucide-react'
+import { Trash2, AlertCircle, MapPin, School as SchoolIcon, Bus, Users, Edit2 } from 'lucide-react'
 import Link from 'next/link'
 import { EditParentContactModal } from '../EditParentContactModal'
 
@@ -39,6 +39,10 @@ function EditPassengerPageClient({ id }: { id: string }) {
     personal_item: '',
     supervision_type: '',
   })
+
+  useEffect(() => {
+    console.debug('[fleet] EditPassengerPageClient (no header back button)', id)
+  }, [id])
 
   useEffect(() => {
     async function loadData() {
@@ -167,17 +171,9 @@ function EditPassengerPageClient({ id }: { id: string }) {
 
       {/* Sticky Header */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 -mx-6 -mt-4 mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href={`/dashboard/passengers/${id}`}>
-            <Button variant="outline" size="sm" className="h-9 px-3 gap-2 text-slate-600 border-slate-300 hover:bg-slate-50">
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Edit Passenger</h1>
-            <p className="text-xs text-slate-500">Update details for {formData.full_name}</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Edit Passenger</h1>
+          <p className="text-xs text-slate-500">Update details for {formData.full_name}</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)} disabled={deleting} className="bg-red-50 text-red-600 hover:bg-red-100 border-red-200">

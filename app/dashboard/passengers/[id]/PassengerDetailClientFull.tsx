@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import {
-    ArrowLeft, Pencil, AlertCircle, ExternalLink, Users, Phone, Mail,
+    Pencil, AlertCircle, ExternalLink, Users, Phone, Mail,
     MapPin, School as SchoolIcon, Bus, CheckCircle, Clock,
     AlertTriangle, MessageSquare, StickyNote, Plus, Trash2, Edit2
 } from 'lucide-react'
@@ -43,6 +43,9 @@ interface Props {
 }
 
 export default function PassengerDetailClientFull({ passenger, incidents, parentContacts }: Props) {
+    useEffect(() => {
+        console.debug('[fleet] PassengerDetailClientFull (no back button)', passenger.id)
+    }, [passenger.id])
 
     return (
         <div className="max-w-[1600px] mx-auto p-4 space-y-6">
@@ -50,12 +53,6 @@ export default function PassengerDetailClientFull({ passenger, incidents, parent
             {/* Header Row */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
-                    <Link href="/dashboard/passengers">
-                        <Button variant="outline" size="sm" className="h-9 px-3 gap-2 text-slate-600 border-slate-300 hover:bg-slate-50">
-                            <ArrowLeft className="h-4 w-4" />
-                            Back
-                        </Button>
-                    </Link>
                     <div className="flex items-center gap-3">
                         <div className="h-12 w-12 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold text-lg border-2 border-white shadow-sm">
                             {passenger.full_name.charAt(0)}

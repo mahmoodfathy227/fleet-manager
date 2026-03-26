@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { COMPLIANCE_NOTIFICATIONS_CHANGED_EVENT } from '@/lib/complianceNotificationsEvents'
 
 export function useComplianceNotificationCount() {
   const [count, setCount] = useState<number>(0)
@@ -47,11 +48,23 @@ export function useComplianceNotificationCount() {
     const handleNotificationResolved = () => {
       fetchCount()
     }
+    const handleComplianceNotificationsChanged = () => {
+      console.debug('[fleet] useComplianceNotificationCount: complianceNotificationsChanged → refetch')
+      fetchCount()
+    }
     window.addEventListener('notificationResolved', handleNotificationResolved)
+    window.addEventListener(
+      COMPLIANCE_NOTIFICATIONS_CHANGED_EVENT,
+      handleComplianceNotificationsChanged
+    )
 
     return () => {
       supabase.removeChannel(channel)
       window.removeEventListener('notificationResolved', handleNotificationResolved)
+      window.removeEventListener(
+        COMPLIANCE_NOTIFICATIONS_CHANGED_EVENT,
+        handleComplianceNotificationsChanged
+      )
     }
   }, [])
 

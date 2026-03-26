@@ -9,6 +9,8 @@ export interface RouteSpareRow {
   driver_employee_id: number | null
   pa_employee_id: number | null
   vehicle_id: number | null
+  /** When set, spare is intended for this calendar day only (operations calendar). */
+  covers_date?: string | null
   starts_at: string
   ends_at: string | null
   reason: string | null
@@ -61,6 +63,10 @@ export function getEffectiveSpareForType(
 
 /** Format spare badge text: "SPARE (until 17:30)" or "SPARE (until 2026-03-05 09:00)" or "SPARE (until cleared)". */
 export function formatSpareBadgeText(spare: RouteSpareRow): string {
+  if (spare.covers_date) {
+    const d = spare.covers_date.slice(0, 10)
+    return `SPARE (${d})`
+  }
   if (!spare.ends_at) return 'SPARE (until cleared)'
   const d = new Date(spare.ends_at)
   const today = new Date()

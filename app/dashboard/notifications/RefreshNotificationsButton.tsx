@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
+import { emitComplianceNotificationsChanged } from '@/lib/complianceNotificationsEvents'
 
 export function RefreshNotificationsButton() {
   const router = useRouter()
@@ -24,6 +25,7 @@ export function RefreshNotificationsButton() {
         throw new Error(errorMessage + details)
       }
 
+      emitComplianceNotificationsChanged('refresh-notifications-button')
       alert('Notifications refreshed successfully!')
       router.refresh()
     } catch (error: any) {

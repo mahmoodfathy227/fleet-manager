@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ConfirmDeleteCard } from '@/components/ui/ConfirmDeleteCard'
-import { ArrowLeft, Trash2, Plus, MapPin, AlertCircle } from 'lucide-react'
+import { Trash2, Plus, MapPin, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { generateUUID } from '@/lib/utils'
 
@@ -58,6 +58,10 @@ function EditRoutePageClient({ id }: { id: string }) {
   const [paAddresses, setPaAddresses] = useState<Record<number, string>>({})
   const routePointsRef = useRef(routePoints)
   routePointsRef.current = routePoints
+
+  useEffect(() => {
+    console.debug('[fleet] EditRoutePageClient (no header back button)', id)
+  }, [id])
 
   const addRoutePoint = () => {
     const nextOrder = routePoints.length + 1
@@ -714,18 +718,9 @@ function EditRoutePageClient({ id }: { id: string }) {
         />
       )}
 
-      {/* Header with Back Button */}
-      <div className="flex items-center gap-4">
-        <Link href={`/dashboard/routes/${id}`}>
-          <Button variant="outline" size="sm" className="h-9 px-3 gap-2 text-slate-600 border-slate-300 hover:bg-slate-50">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Edit Route</h1>
-          <p className="text-sm text-slate-500">Update route details and stops</p>
-        </div>
+      <div>
+        <h1 className="text-xl font-bold text-slate-900">Edit Route</h1>
+        <p className="text-sm text-slate-500">Update route details and stops</p>
       </div>
 
       {error && !showDeleteConfirm && (

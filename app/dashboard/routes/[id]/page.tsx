@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { ArrowLeft, Pencil, FileDown, MapPin, Plus } from 'lucide-react'
+import { Pencil, MapPin, Plus } from 'lucide-react'
 import ExportTR1Button from './ExportTR1Button'
 import { formatDate } from '@/lib/utils'
 import { notFound } from 'next/navigation'
@@ -111,13 +111,7 @@ async function getRouteDetails(id: string) {
   }
 }
 
-export default async function ViewRoutePage({
-  params,
-  searchParams,
-}: {
-  params: { id: string }
-  searchParams?: { from?: string }
-}) {
+export default async function ViewRoutePage({ params }: { params: { id: string } }) {
   const data = await getRouteDetails(params.id)
 
   if (!data) {
@@ -125,25 +119,16 @@ export default async function ViewRoutePage({
   }
 
   const { route, routePasList, passengers, routePoints, vehicle } = data
-  const backHref = searchParams?.from === 'school-overview' ? '/dashboard/school-overview' : '/dashboard/routes'
+  console.debug('[fleet] dashboard/routes/[id] view (no back button)', params.id)
 
   return (
     <div className="space-y-2">
-      {/* Header with Back Button */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href={backHref}>
-            <Button variant="outline" size="sm" className="h-9 px-3 gap-2 text-slate-600 border-slate-300 hover:bg-slate-50">
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              {route.route_number || `Route ${route.id}`}
-            </h1>
-            <p className="text-sm text-slate-500">Route Details & Assignments</p>
-          </div>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">
+            {route.route_number || `Route ${route.id}`}
+          </h1>
+          <p className="text-sm text-slate-500">Route Details & Assignments</p>
         </div>
         <div className="flex items-center gap-2">
           <ExportTR1Button routeId={route.id} />

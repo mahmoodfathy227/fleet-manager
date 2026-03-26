@@ -2,38 +2,44 @@
 
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Car, Users, Route } from 'lucide-react'
+import { Car, Users, Route, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ComplianceVehicleCalendarClient } from '@/app/dashboard/compliance/vehicles/calendar/ComplianceVehicleCalendarClient'
 import { ComplianceEmployeeCalendarClient } from './ComplianceEmployeeCalendarClient'
 import { RouteUpdatesCalendarView } from './RouteUpdatesCalendarView'
+import { OperationsCalendarClient } from './OperationsCalendarClient'
 
-type CalendarTab = 'vehicles' | 'employees' | 'route-updates'
+type CalendarTab = 'operations' | 'vehicles' | 'employees' | 'route-updates'
 
 const TABS: { id: CalendarTab; label: string; icon: typeof Car }[] = [
+  { id: 'operations', label: 'Routes & schools', icon: CalendarDays },
   { id: 'vehicles', label: 'Compliance (Vehicles)', icon: Car },
   { id: 'employees', label: 'Compliance (Employees)', icon: Users },
   { id: 'route-updates', label: 'Route updates', icon: Route },
 ]
 
 const isValidTab = (s: string | null): s is CalendarTab =>
-  s === 'vehicles' || s === 'employees' || s === 'route-updates'
+  s === 'operations' || s === 'vehicles' || s === 'employees' || s === 'route-updates'
 
 export function CalendarView() {
   const searchParams = useSearchParams()
   const tabParam = searchParams?.get('tab') ?? null
-  const [activeTab, setActiveTab] = useState<CalendarTab>(isValidTab(tabParam) ? tabParam : 'vehicles')
+  const [activeTab, setActiveTab] = useState<CalendarTab>(isValidTab(tabParam) ? tabParam : 'operations')
 
   useEffect(() => {
     if (isValidTab(tabParam)) setActiveTab(tabParam)
   }, [tabParam])
+
+  useEffect(() => {
+    console.debug('[fleet] CalendarView: default tab routes & schools (operations); legacy tabs unchanged')
+  }, [])
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Calendar</h1>
         <p className="mt-1 text-sm text-slate-600">
-          View compliance events and route updates in one place. Use the tabs to filter by vehicles, employees, or route updates.
+          Operations calendar (routes by school), vehicle and employee compliance, and route notes — switch tabs below.
         </p>
       </div>
 
@@ -62,6 +68,16 @@ export function CalendarView() {
       </div>
 
       <div className="min-h-[400px]">
+        {activeTab === 'operations' && (
+          <div>
+            <p className="text-sm text-slate-600 mb-4">
+              Blue dots: route sessions, route updates, or passenger/parent updates. Red dots: crew certificate expiring or
+              expired (on that session day), or a parent trip cancellation. Filter by school and route; open a day for
+              details, spare driver assignment, and compliance warnings.
+            </p>
+            <OperationsCalendarClient />
+          </div>
+        )}
         {activeTab === 'vehicles' && (
           <div>
             <p className="text-sm text-slate-600 mb-4">

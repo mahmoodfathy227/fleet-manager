@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { ArrowLeft, Pencil, Plus, UserCog } from 'lucide-react'
+import { Pencil, Plus, UserCog } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { notFound } from 'next/navigation'
 import SchoolRouteSessionsClient from './SchoolRouteSessionsClient'
@@ -138,22 +138,14 @@ export default async function ViewSchoolPage({
   }
 
   const { school, routes, crewCount, crewAssignments, passengers, coordinators } = data
+  console.debug('[fleet] dashboard/schools/[id] view (no back button)', params.id)
 
   return (
     <div className="space-y-2">
-      {/* Header with Back Button - match route screen */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard/schools">
-            <Button variant="outline" size="sm" className="h-8 px-2.5 gap-1.5 text-slate-600 border-slate-300 hover:bg-slate-50">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-bold text-slate-900">{school.name}</h1>
-            <p className="text-xs text-slate-500">School Details & Information</p>
-          </div>
+        <div>
+          <h1 className="text-lg font-bold text-slate-900">{school.name}</h1>
+          <p className="text-xs text-slate-500">School Details & Information</p>
         </div>
         <div className="flex items-center gap-1.5">
           <ExportTAS5Button schoolId={school.id} schoolName={school.name} />
