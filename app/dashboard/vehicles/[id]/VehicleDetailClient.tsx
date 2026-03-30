@@ -92,6 +92,10 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
   const [loadingRoutes, setLoadingRoutes] = useState(true)
 
   useEffect(() => {
+    console.debug('[fleet] VehicleDetailClient: vehicle_category labels M1/M2/N1/Hackney_Carriage', vehicleId)
+  }, [vehicleId])
+
+  useEffect(() => {
     async function fetchFieldAudit() {
       try {
         const response = await fetch(`/api/vehicles/${vehicleId}/field-audit`)
@@ -312,7 +316,18 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
                   <FieldWithAudit fieldName="model" label="Model" value={vehicle.model} />
                   <FieldWithAudit fieldName="colour" label="Colour" value={vehicle.colour} />
                   <FieldWithAudit fieldName="vehicle_type" label="Vehicle Type" value={vehicle.vehicle_type} />
-                  <FieldWithAudit fieldName="vehicle_category" label="Vehicle Category" value={vehicle.vehicle_category} />
+                  <FieldWithAudit
+                    fieldName="vehicle_category"
+                    label="Vehicle Category"
+                    value={vehicle.vehicle_category}
+                    formatValue={(val) => {
+                      if (val == null || val === '') return 'N/A'
+                      if (val === 'Hackney_Carriage') return 'Hackney Carriage'
+                      if (val === 'Jackeny') return 'Hackney Carriage'
+                      if (val === 'M2') return 'M2 (Passenger vehicle — more than 8 seats)'
+                      return String(val)
+                    }}
+                  />
                   <FieldWithAudit fieldName="ownership_type" label="Ownership" value={vehicle.ownership_type} />
                   <FieldWithAudit fieldName="council_assignment" label="Council" value={vehicle.council_assignment} />
                 </div>
