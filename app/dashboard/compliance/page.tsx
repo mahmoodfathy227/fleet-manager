@@ -1,9 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
-import { Suspense } from 'react'
-import { Bell, ShieldCheck } from 'lucide-react'
+import React, { Suspense } from 'react'
+import { Bell } from 'lucide-react'
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { ComplianceNotificationsClient } from './ComplianceNotificationsClient'
-import { RefreshNotificationsButton } from '../notifications/RefreshNotificationsButton'
+import { orderComplianceNotificationsListForPage } from '@/lib/complianceNotificationsDisplay'
+
+/** Shown on Compliance page: certificate expiry + parent trip cancellations (same table, trip rows use `details` JSON). */
+const COMPLIANCE_PAGE_NOTIFICATION_TYPES = ['certificate_expiry', 'trip_cancellation'] as const
 
 async function getComplianceNotifications() {
   const supabase = await createClient()
@@ -14,7 +17,7 @@ async function getComplianceNotifications() {
       *,
       recipient:recipient_employee_id(full_name, personal_email)
     `)
-    .eq('notification_type', 'certificate_expiry')
+    .in('notification_type', [...COMPLIANCE_PAGE_NOTIFICATION_TYPES])
     .order('created_at', { ascending: false })
     .limit(100)
 
@@ -36,16 +39,33 @@ async function getComplianceNotifications() {
     return []
   }
 
-  return data || []
+  const rows = data || []
+  console.debug(
+    '[fleet] compliance page SSR: types',
+    COMPLIANCE_PAGE_NOTIFICATION_TYPES,
+    'count',
+    rows.length
+  )
+  console.debug('[fleet] compliance page SSR: notifications ordered newest first (pending then resolved)')
+  return orderComplianceNotificationsListForPage(
+    rows as {
+      id: number
+      status: string
+      expiry_date: string | null
+      admin_response_required?: boolean | null
+      created_at: string
+      resolved_at: string | null
+    }[]
+  )
 }
 
 async function getPendingCount() {
   const supabase = await createClient()
 
-  const { data, error } = await supabase
+  const { count, error } = await supabase
     .from('notifications')
     .select('id', { count: 'exact', head: true })
-    .eq('notification_type', 'certificate_expiry')
+    .in('notification_type', [...COMPLIANCE_PAGE_NOTIFICATION_TYPES])
     .or('status.eq.pending,admin_response_required.eq.true')
 
   if (error) {
@@ -53,7 +73,8 @@ async function getPendingCount() {
     return 0
   }
 
-  return data?.length || 0
+  console.debug('[fleet] compliance page SSR: pending count (cert + trip cancellation)', count ?? 0)
+  return count ?? 0
 }
 
 export default async function CompliancePage() {
@@ -67,7 +88,9 @@ export default async function CompliancePage() {
 
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Compliance Notifications</h1>
-            <p className="text-sm text-slate-500">Certificate expiry notifications for employees, drivers, and vehicles</p>
+            <p className="text-sm text-slate-500">
+              Certificate expiry and trip cancellation alerts (routes / passengers)
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -77,12 +100,13 @@ export default async function CompliancePage() {
               <span className="text-sm font-medium">{pendingCount} pending</span>
             </div>
           )}
-          <RefreshNotificationsButton />
         </div>
       </div>
 
       <Suspense fallback={<TableSkeleton />}>
-        <ComplianceNotificationsClient initialNotifications={notifications} />
+        <ComplianceNotificationsClient
+          initialNotifications={notifications as React.ComponentProps<typeof ComplianceNotificationsClient>['initialNotifications']}
+        />
       </Suspense>
     </div>
   )

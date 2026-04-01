@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/Select'
 import { ArrowLeft, Save, Plus, Clock } from 'lucide-react'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import Link from 'next/link'
+import { daysFromTodayToExpiryDate, formatDaysFromTodayLabel } from '@/lib/expiryRelativeToToday'
 
 interface Notification {
   id: number
@@ -59,6 +60,10 @@ export function ComplianceCaseDetailClient({
   const [saving, setSaving] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [addingNote, setAddingNote] = useState(false)
+
+  useEffect(() => {
+    console.debug('[fleet] ComplianceCaseDetailClient: "From today" uses daysFromTodayToExpiryDate(expiry_date)')
+  }, [])
 
   useEffect(() => {
     setApplicationStatus(caseRow?.application_status || 'not_applied')
@@ -179,9 +184,13 @@ export function ComplianceCaseDetailClient({
                   <span className="text-sm text-slate-800">{notif?.expiry_date ? formatDate(notif.expiry_date) : '—'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Status</span>
-                  <span className={`text-sm font-medium ${notif?.days_until_expiry != null && notif.days_until_expiry < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                    {notif?.days_until_expiry != null ? `${notif.days_until_expiry} days left` : '—'}
+                  <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">From today</span>
+                  <span
+                    className={`text-sm font-medium ${
+                      notif?.expiry_date && daysFromTodayToExpiryDate(notif.expiry_date) < 0 ? 'text-red-600' : 'text-slate-800'
+                    }`}
+                  >
+                    {notif?.expiry_date ? formatDaysFromTodayLabel(daysFromTodayToExpiryDate(notif.expiry_date)) : '—'}
                   </span>
                 </div>
               </div>

@@ -11,21 +11,22 @@ import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import ReplacementVehicleFinder from '@/components/ReplacementVehicleFinder'
 import { createClient } from '@/lib/supabase/client'
+import { daysFromTodayToExpiryDate, formatDaysFromTodayLabel } from '@/lib/expiryRelativeToToday'
 
 interface Notification {
   id: number
   notification_type: string
-  entity_type: string
-  entity_id: number
-  certificate_type: string
-  certificate_name: string
-  expiry_date: string
-  days_until_expiry: number
+  entity_type: string | null
+  entity_id: number | null
+  certificate_type: string | null
+  certificate_name: string | null
+  expiry_date: string | null
+  days_until_expiry: number | null
   recipient_employee_id: number | null
   recipient_email: string | null
   status: 'pending' | 'sent' | 'resolved' | 'dismissed'
   email_sent_at: string | null
-  email_token: string
+  email_token: string | null
   resolved_at: string | null
   created_at: string
   employee_response_type?: string | null
@@ -65,6 +66,12 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
   const [decliningTardiness, setDecliningTardiness] = useState<number | null>(null)
   const [tardinessNotes, setTardinessNotes] = useState<{ [key: number]: string }>({})
   const [showTardinessModal, setShowTardinessModal] = useState<number | null>(null)
+
+  useEffect(() => {
+    console.debug(
+      '[fleet] NotificationsClient: trip_cancellation rows leave Expiry Date + From today empty on compliance tab'
+    )
+  }, [])
 
   // Real-time subscription for notifications
   useEffect(() => {
@@ -268,20 +275,20 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
     }
   }
 
-  const getStatusIcon = (status: string, daysUntil: number) => {
+  const getStatusIcon = (status: string, daysFromToday: number) => {
     if (status === 'resolved' || status === 'dismissed') {
       return <CheckCircle className="h-5 w-5 text-gray-400" />
     }
-    if (daysUntil < 0) {
+    if (daysFromToday < 0) {
       return <XCircle className="h-5 w-5 text-red-500" />
     }
-    if (daysUntil <= 7) {
+    if (daysFromToday <= 7) {
       return <AlertTriangle className="h-5 w-5 text-orange-500" />
     }
     return <Clock className="h-5 w-5 text-yellow-500" />
   }
 
-  const getStatusBadge = (status: string, daysUntil: number) => {
+  const getStatusBadge = (status: string, daysFromToday: number) => {
     if (status === 'resolved') {
       return <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-green-100 text-green-800">Resolved</span>
     }
@@ -291,20 +298,23 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
     if (status === 'sent') {
       return <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800">Email Sent</span>
     }
-    if (daysUntil < 0) {
+    if (daysFromToday < 0) {
       return <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-red-100 text-red-800">Expired</span>
     }
-    if (daysUntil <= 7) {
+    if (daysFromToday <= 7) {
       return <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-orange-100 text-orange-800">Urgent</span>
     }
     return <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800">Pending</span>
   }
 
-  const getEntityLink = (entityType: string, entityId: number) => {
-    if (entityType === 'vehicle') {
+  /** Certificate-style rows: live offset from today using expiry_date (not stored days_until_expiry). */
+  const daysFromTodayForComplianceRow = (n: Notification) => daysFromTodayToExpiryDate(n.expiry_date)
+
+  const getEntityLink = (entityType: string | null, entityId: number | null) => {
+    if (entityType === 'vehicle' && entityId != null) {
       return `/dashboard/vehicles/${entityId}`
     }
-    if (entityType === 'driver' || entityType === 'assistant') {
+    if ((entityType === 'driver' || entityType === 'assistant') && entityId != null) {
       return `/dashboard/employees/${entityId}`
     }
     return '#'
@@ -360,7 +370,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
   }
 
   const handleApproveTardiness = async (notification: Notification) => {
-    const tardinessReportId = parseInt(notification.certificate_type)
+    const tardinessReportId = parseInt(String(notification.certificate_type ?? ''), 10)
     if (!tardinessReportId) return
 
     setApprovingTardiness(notification.id)
@@ -407,7 +417,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
   }
 
   const handleDeclineTardiness = async (notification: Notification) => {
-    const tardinessReportId = parseInt(notification.certificate_type)
+    const tardinessReportId = parseInt(String(notification.certificate_type ?? ''), 10)
     if (!tardinessReportId) return
 
     setDecliningTardiness(notification.id)
@@ -503,54 +513,101 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                       <TableHead>Entity</TableHead>
                       <TableHead>Recipient</TableHead>
                       <TableHead>Expiry Date</TableHead>
-                      <TableHead>Days Until</TableHead>
+                      <TableHead>From today</TableHead>
                       <TableHead>Employee Response</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {complianceNotifications.map((notification) => (
+                    {complianceNotifications.map((notification) => {
+                      const trip = notification.notification_type === 'trip_cancellation'
+                      const td =
+                        notification.details &&
+                        typeof notification.details === 'object' &&
+                        !Array.isArray(notification.details)
+                          ? (notification.details as Record<string, unknown>)
+                          : {}
+                      const routeIdRaw = td.route_id
+                      const routeIdNum = typeof routeIdRaw === 'number' ? routeIdRaw : Number(routeIdRaw)
+                      const routeIdOk = Number.isFinite(routeIdNum) && routeIdNum > 0
+                      const daysFromToday = daysFromTodayForComplianceRow(notification)
+                      console.debug('[fleet] NotificationsClient: compliance row render', notification.id, notification.notification_type)
+                      return (
                       <TableRow 
                         key={notification.id}
                         className={notification.admin_response_required ? 'bg-orange-50 border-l-4 border-orange-500' : ''}
                       >
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            {getStatusIcon(notification.status, notification.days_until_expiry)}
-                            {getStatusBadge(notification.status, notification.days_until_expiry)}
+                            {getStatusIcon(notification.status, daysFromToday)}
+                            {getStatusBadge(notification.status, daysFromToday)}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div>
-                            <div className="font-medium">{notification.certificate_name}</div>
-                            <div className="text-sm text-gray-500">{notification.entity_type}</div>
-                          </div>
+                          {trip ? (
+                            <div>
+                              <div className="font-medium">Trip cancellation</div>
+                              <div className="text-sm text-gray-500">
+                                {typeof td.reason === 'string' && td.reason.trim() ? td.reason : '—'}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="font-medium">{notification.certificate_name}</div>
+                              <div className="text-sm text-gray-500">{notification.entity_type}</div>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Link
-                            href={getEntityLink(notification.entity_type, notification.entity_id)}
-                            className="text-blue-600 hover:underline flex items-center space-x-1"
-                          >
-                            <span>View {notification.entity_type}</span>
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
+                          {trip && routeIdOk ? (
+                            <Link
+                              href={`/dashboard/routes/${routeIdNum}`}
+                              className="text-blue-600 hover:underline flex items-center space-x-1"
+                            >
+                              <span>Open route</span>
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                          ) : (
+                            <Link
+                              href={getEntityLink(notification.entity_type, notification.entity_id)}
+                              className="text-blue-600 hover:underline flex items-center space-x-1"
+                            >
+                              <span>View {notification.entity_type}</span>
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <div>
-                            <div className="text-sm">{notification.recipient?.full_name || 'N/A'}</div>
-                            <div className="text-xs text-gray-500">{notification.recipient_email || 'No email'}</div>
-                          </div>
+                          {trip ? (
+                            <div>
+                              <div className="text-sm">
+                                {typeof td.parent_name === 'string' && td.parent_name.trim() ? td.parent_name : '—'}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {typeof td.passenger_name === 'string' && td.passenger_name.trim()
+                                  ? td.passenger_name
+                                  : '—'}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-sm">{notification.recipient?.full_name || 'N/A'}</div>
+                              <div className="text-xs text-gray-500">{notification.recipient_email || 'No email'}</div>
+                            </div>
+                          )}
                         </TableCell>
-                        <TableCell>{formatDate(notification.expiry_date)}</TableCell>
+                        <TableCell>{trip ? null : formatDate(notification.expiry_date)}</TableCell>
                         <TableCell>
-                          <span className={notification.days_until_expiry < 0 ? 'text-red-600 font-semibold' : notification.days_until_expiry <= 7 ? 'text-orange-600 font-semibold' : ''}>
-                            {notification.days_until_expiry < 0
-                              ? `Expired ${Math.abs(notification.days_until_expiry)} days ago`
-                              : `${notification.days_until_expiry} days`}
-                          </span>
+                          {trip ? null : (
+                            <span className={daysFromToday < 0 ? 'text-red-600 font-semibold' : daysFromToday <= 7 ? 'text-orange-600 font-semibold' : ''}>
+                              {formatDaysFromTodayLabel(daysFromToday)}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>
-                          {notification.admin_response_required && notification.employee_response_type ? (
+                          {trip ? (
+                            <div className="text-xs text-gray-400">—</div>
+                          ) : notification.admin_response_required && notification.employee_response_type ? (
                             <div className="space-y-1">
                               <div className="flex items-center space-x-1">
                                 <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
@@ -600,7 +657,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2 flex-wrap gap-2">
-                            {notification.status === 'pending' && notification.recipient_email && (
+                            {!trip && notification.status === 'pending' && notification.recipient_email && (
                               <Button
                                 size="sm"
                                 onClick={() => handleOpenEmailEditor(notification)}
@@ -610,7 +667,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                                 Send Email
                               </Button>
                             )}
-                            {notification.status === 'sent' && notification.recipient_email && (
+                            {!trip && notification.status === 'sent' && notification.recipient_email && (
                               <>
                                 <span className="text-sm text-gray-500">
                                   Sent {notification.email_sent_at ? formatDateTime(notification.email_sent_at) : ''}
@@ -661,7 +718,8 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -686,24 +744,50 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {complianceResolved.map((notification) => (
+                      {complianceResolved.map((notification) => {
+                        const trip = notification.notification_type === 'trip_cancellation'
+                        const td =
+                          notification.details &&
+                          typeof notification.details === 'object' &&
+                          !Array.isArray(notification.details)
+                            ? (notification.details as Record<string, unknown>)
+                            : {}
+                        const routeIdRaw = td.route_id
+                        const routeIdNum = typeof routeIdRaw === 'number' ? routeIdRaw : Number(routeIdRaw)
+                        const routeIdOk = Number.isFinite(routeIdNum) && routeIdNum > 0
+                        const daysR = daysFromTodayForComplianceRow(notification)
+                        console.debug('[fleet] NotificationsClient: compliance resolved row', notification.id, notification.notification_type)
+                        return (
                         <TableRow key={notification.id}>
-                          <TableCell>{getStatusBadge(notification.status, notification.days_until_expiry)}</TableCell>
-                          <TableCell>{notification.certificate_name}</TableCell>
                           <TableCell>
-                            <Link
-                              href={getEntityLink(notification.entity_type, notification.entity_id)}
-                              className="text-blue-600 hover:underline"
-                            >
-                              View {notification.entity_type}
-                            </Link>
+                            {getStatusBadge(notification.status, daysR)}
                           </TableCell>
-                          <TableCell>{formatDate(notification.expiry_date)}</TableCell>
+                          <TableCell>
+                            {trip
+                              ? `Trip · ${typeof td.reason === 'string' && td.reason.trim() ? td.reason : 'cancellation'}`
+                              : notification.certificate_name}
+                          </TableCell>
+                          <TableCell>
+                            {trip && routeIdOk ? (
+                              <Link href={`/dashboard/routes/${routeIdNum}`} className="text-blue-600 hover:underline">
+                                Open route
+                              </Link>
+                            ) : (
+                              <Link
+                                href={getEntityLink(notification.entity_type, notification.entity_id)}
+                                className="text-blue-600 hover:underline"
+                              >
+                                View {notification.entity_type}
+                              </Link>
+                            )}
+                          </TableCell>
+                          <TableCell>{trip ? null : formatDate(notification.expiry_date)}</TableCell>
                           <TableCell>
                             {notification.resolved_at ? formatDateTime(notification.resolved_at) : 'N/A'}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -805,7 +889,7 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
             <div className="p-6 space-y-4">
               {tardinessNotifications.map((notification) => {
                 const details = notification.details || {}
-                const tardinessReportId = parseInt(notification.certificate_type)
+                const tardinessReportId = parseInt(String(notification.certificate_type ?? ''), 10)
                 return (
                   <div
                     key={notification.id}
@@ -820,7 +904,13 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                           </span>
                         </div>
                         <div className="text-sm text-gray-700 space-y-1">
-                          <p><strong>Driver:</strong> <Link href={`/dashboard/employees/${notification.entity_id}`} className="text-navy hover:underline">{details.driver_name || 'N/A'}</Link></p>
+                          <p><strong>Driver:</strong>{' '}
+                            {notification.entity_id != null ? (
+                              <Link href={`/dashboard/employees/${notification.entity_id}`} className="text-navy hover:underline">{details.driver_name || 'N/A'}</Link>
+                            ) : (
+                              <span>{details.driver_name || 'N/A'}</span>
+                            )}
+                          </p>
                           {details.route_number && (
                             <p><strong>Route:</strong> {details.route_number}</p>
                           )}
@@ -929,12 +1019,12 @@ export function NotificationsClient({ initialNotifications }: NotificationsClien
                           <TableCell>
                             {notification.notification_type === 'vehicle_breakdown' ? '🚨 Breakdown' : '⏰ Tardiness'}
                           </TableCell>
-                          <TableCell>{getStatusBadge(notification.status, notification.days_until_expiry)}</TableCell>
+                          <TableCell>{getStatusBadge(notification.status, notification.days_until_expiry ?? 0)}</TableCell>
                           <TableCell>
                             {notification.notification_type === 'vehicle_breakdown' ? (
-                              <span>Vehicle {notification.entity_id}</span>
+                              <span>Vehicle {notification.entity_id ?? '—'}</span>
                             ) : (
-                              <span>Driver {notification.entity_id}</span>
+                              <span>Driver {notification.entity_id ?? '—'}</span>
                             )}
                           </TableCell>
                           <TableCell>

@@ -190,6 +190,20 @@
     }
   }
 
+  @keyframes toast-timer-shrink {
+    from {
+      width: 100%;
+    }
+
+    to {
+      width: 0%;
+    }
+  }
+
+  .notification-toast-enter {
+    animation: slideUp 0.35s ease-out;
+  }
+
   /* Global file input button styling - matches primary button style */
   input[type="file"]::file-selector-button {
     @apply bg-primary text-primary-foreground;

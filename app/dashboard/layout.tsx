@@ -1,5 +1,6 @@
 import { Sidebar } from '@/components/dashboard/Sidebar'
 import { RouteGuard } from '@/components/dashboard/RouteGuard'
+import { NotificationRealtimeToasts } from '@/components/dashboard/NotificationRealtimeToasts'
 
 export default function DashboardLayout({
   children,
@@ -8,6 +9,7 @@ export default function DashboardLayout({
 }) {
   return (
     <RouteGuard>
+      <NotificationRealtimeToasts />
       <div className="flex h-screen overflow-hidden bg-slate-50">
         <Sidebar />
         <main className="flex-1 overflow-y-auto overflow-x-hidden">

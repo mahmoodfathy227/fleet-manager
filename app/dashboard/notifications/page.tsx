@@ -8,7 +8,6 @@ import { Bell, Mail, CheckCircle, XCircle, AlertTriangle, Clock } from 'lucide-r
 import { formatDate, formatDateTime } from '@/lib/utils'
 import Link from 'next/link'
 import { NotificationsClient } from './NotificationsClient'
-import { RefreshNotificationsButton } from './RefreshNotificationsButton'
 
 async function getNotifications() {
   const supabase = await createClient()
@@ -79,7 +78,6 @@ export default async function NotificationsPage() {
               <span>{pendingCount} pending notification{pendingCount !== 1 ? 's' : ''}</span>
             </div>
           )}
-          <RefreshNotificationsButton />
         </div>
       </div>
 

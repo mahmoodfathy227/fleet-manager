@@ -3,7 +3,6 @@ import { Suspense } from 'react'
 import { Bell, Activity } from 'lucide-react'
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { RouteActivityNotificationsClient } from './RouteActivityNotificationsClient'
-import { RefreshNotificationsButton } from '../notifications/RefreshNotificationsButton'
 
 async function getRouteActivityNotifications() {
   const supabase = await createClient()
@@ -74,7 +73,6 @@ export default async function RouteActivityPage() {
               <span className="text-sm font-medium">{pendingCount} pending</span>
             </div>
           )}
-          <RefreshNotificationsButton />
         </div>
       </div>
 

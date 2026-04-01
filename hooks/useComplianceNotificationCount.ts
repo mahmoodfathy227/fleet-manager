@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { COMPLIANCE_NOTIFICATIONS_CHANGED_EVENT } from '@/lib/complianceNotificationsEvents'
 
+const COMPLIANCE_COUNT_TYPES = 'certificate_expiry,trip_cancellation'
+
 export function useComplianceNotificationCount() {
   const [count, setCount] = useState<number>(0)
   const [isLoading, setIsLoading] = useState(true)
@@ -15,9 +17,10 @@ export function useComplianceNotificationCount() {
       const { count: pendingCount, error } = await supabase
         .from('notifications')
         .select('id', { count: 'exact', head: true })
-        .eq('notification_type', 'certificate_expiry')
+        .in('notification_type', ['certificate_expiry', 'trip_cancellation'])
         .or('status.eq.pending,admin_response_required.eq.true')
 
+      console.debug('[fleet] useComplianceNotificationCount: refetch', pendingCount, error?.message ?? '')
       if (!error && pendingCount !== null) {
         setCount(pendingCount)
       } else if (error) {
@@ -37,7 +40,7 @@ export function useComplianceNotificationCount() {
           event: '*',
           schema: 'public',
           table: 'notifications',
-          filter: 'notification_type=eq.certificate_expiry'
+          filter: `notification_type=in.(${COMPLIANCE_COUNT_TYPES})`
         },
         () => {
           fetchCount()

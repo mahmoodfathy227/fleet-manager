@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/Label'
 import { Camera, Upload, FileCheck, X, CheckCircle, AlertCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { formatDate } from '@/lib/utils'
+import { daysFromTodayToExpiryDate, formatDaysFromTodayLabel } from '@/lib/expiryRelativeToToday'
 
 export default function UploadDocumentPage({ params }: { params: Promise<{ token: string }> }) {
   const router = useRouter()
@@ -34,6 +35,10 @@ export default function UploadDocumentPage({ params }: { params: Promise<{ token
     }
     getToken()
   }, [params])
+
+  useEffect(() => {
+    console.debug('[fleet] upload-document: "From today" uses daysFromTodayToExpiryDate(expiry_date)')
+  }, [])
 
   useEffect(() => {
     if (token) {
@@ -474,10 +479,8 @@ export default function UploadDocumentPage({ params }: { params: Promise<{ token
                 <div className="space-y-1 text-sm text-gray-700">
                   <p><strong>Certificate:</strong> {notification.certificate_name}</p>
                   <p><strong>Expiry Date:</strong> {formatDate(notification.expiry_date)}</p>
-                  <p><strong>Status:</strong> {
-                    notification.days_until_expiry < 0
-                      ? `Expired ${Math.abs(notification.days_until_expiry)} days ago`
-                      : `Expires in ${notification.days_until_expiry} days`
+                  <p><strong>From today:</strong> {
+                    formatDaysFromTodayLabel(daysFromTodayToExpiryDate(notification.expiry_date))
                   }</p>
                 </div>
               </div>

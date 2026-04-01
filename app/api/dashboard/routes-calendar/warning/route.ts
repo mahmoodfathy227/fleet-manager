@@ -1,15 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { sliceIsoDate } from '@/lib/routesCalendar'
+import { daysFromTodayToExpiryDate } from '@/lib/expiryRelativeToToday'
 
 export const dynamic = 'force-dynamic'
-
-function daysUntilFromToday(expiryDate: string): number {
-  const t = new Date()
-  t.setHours(0, 0, 0, 0)
-  const e = new Date(expiryDate + 'T12:00:00')
-  return Math.round((e.getTime() - t.getTime()) / (1000 * 60 * 60 * 24))
-}
 
 /**
  * POST — create a compliance notification (certificate_expiry) for coordinator follow-up / email flow.
@@ -43,7 +37,8 @@ export async function POST(request: NextRequest) {
   }
 
   const exp = sliceIsoDate(expiryDate) ?? expiryDate.slice(0, 10)
-  const days = daysUntilFromToday(exp)
+  const days = daysFromTodayToExpiryDate(exp)
+  console.debug('[fleet] routes-calendar/warning: days_from_today_to_expiry for insert', days, exp)
 
   try {
     const { data: emp, error: empErr } = await supabase

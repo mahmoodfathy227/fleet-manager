@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
+import { daysFromTodayToExpiryDate, formatDaysFromTodayLabel } from '@/lib/expiryRelativeToToday'
 
 export async function POST(request: Request) {
   try {
@@ -145,13 +146,12 @@ export async function POST(request: Request) {
     let finalBody = emailBody
 
     if (!finalSubject || !finalBody) {
-      // Generate default email content
-      const expiryStatus = notification.days_until_expiry < 0 
-        ? 'EXPIRED' 
-        : notification.days_until_expiry <= 7 
-          ? 'EXPIRING SOON' 
-          : 'Expiring Soon'
-      
+      // Generate default email content (offset from today vs expiry_date, not stored days_until_expiry)
+      const d = daysFromTodayToExpiryDate(notification.expiry_date)
+      console.debug('[fleet] send-email: days from today to expiry', d, notification.id)
+      const expiryStatus =
+        d < 0 ? 'EXPIRED' : d === 0 ? 'DUE TODAY' : d <= 7 ? 'EXPIRING SOON' : 'Expiring Soon'
+
       finalSubject = finalSubject || `[${expiryStatus}] ${notification.certificate_name} - ${entityName}`
 
       finalBody = finalBody || `Dear ${recipientName},
@@ -162,9 +162,7 @@ This is an automated notification regarding compliance certificate expiry.
 - Certificate: ${notification.certificate_name}
 - Entity: ${entityName}
 - Expiry Date: ${new Date(notification.expiry_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-- Status: ${notification.days_until_expiry < 0 
-  ? `EXPIRED ${Math.abs(notification.days_until_expiry)} days ago` 
-  : `Expires in ${notification.days_until_expiry} days`}
+- From today: ${formatDaysFromTodayLabel(d)}
 
 **Required Documents:**
 ${neededDocuments.map(doc => `- ${doc}`).join('\n')}

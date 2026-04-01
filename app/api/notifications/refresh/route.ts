@@ -10,7 +10,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Call the RPC function
+    // Call the RPC function (requires vehicle_assignments table — see migration 172)
+    console.debug('[notifications/refresh] invoking create_certificate_notifications')
     const { data, error } = await supabase.rpc('create_certificate_notifications')
 
     if (error) {
