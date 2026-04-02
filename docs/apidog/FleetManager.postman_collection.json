@@ -1,0 +1,3253 @@
+{
+  "info": {
+    "_postman_id": "fleet-manager-collection-v1",
+    "name": "Fleet Manager – Supabase API",
+    "description": "Complete API collection for the Fleet Manager Next.js + Supabase project.\n\n---\n\n> ⚠️ **AI-GENERATED DRAFT — NOT YET REVIEWED**\n> This collection was generated from automated codebase analysis (April 2026) using GitHub Copilot.\n> It has not been fully verified by the development team. Treat all descriptions, validations, and flow notes as a starting point only.\n>\n> **Review template:** When you verify an endpoint, add a note in the request description using this format:\n> `✅ Reviewed by [Name] on [Date] — [Confirmed correct / Notes on discrepancy]`\n\n---\n\n### Architecture Overview\nThis project uses three layers for its API:\n\n| Layer | Technology | Equivalent in Spring Boot |\n|---|---|---|\n| **Data visibility** | Supabase RLS Policies | `@PreAuthorize` / Spring Security |\n| **Business logic** | Supabase Edge Functions (Deno/TypeScript) | `@Service` layer |\n| **Read-only DB logic** | Postgres RPCs (PL/pgSQL) | Repository query methods |\n| **Next.js API routes** | `/app/api/**` | `@RestController` |\n\n**Key rule:** RLS policies control *who can see which rows*. Business rules (time gates, ownership checks, duplicate prevention) live in Edge Functions.\n\n**Service role key:** Using `service_role_key` as `apikey` bypasses ALL RLS policies — equivalent to running as root. Never use it client-side.\n\n### Authentication Flow\nParents (Flutter app) and admins (web dashboard) both authenticate via Supabase Auth JWT. However:\n- **Admins** have a role in `user_roles` → `rbac_notifications_select` policy grants access to all notifications\n- **Parents** have NO role — their access is controlled solely by `notifications_select_own` policy (`recipient_user_id = auth.uid()`)\n\n### Quick-start\n1. Import both this file and `FleetManager.postman_environment.json`.\n2. Select the **Fleet Manager – Supabase** environment.\n3. Fill in `base_url`, `anon_key`, and `service_role_key`.\n4. Run **Auth › Sign In** first — the test script auto-saves `auth_token` and `user_id`.\n5. All authenticated requests will pick up `{{auth_token}}` automatically.\n\n### Key variables\n| Variable | Usage |\n|---|---|\n| `{{base_url}}` | `https://YOUR_PROJECT_REF.supabase.co` |\n| `{{anon_key}}` | Passed as `apikey` header on all requests (RLS enforced) |\n| `{{service_role_key}}` | Bypasses RLS — admin/service use only, never client-side |\n| `{{auth_token}}` | Bearer JWT, auto-set after Sign In |\n| `{{user_id}}` | Auth UUID, auto-set after Sign In |",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url",          "value": "https://YOUR_PROJECT_REF.supabase.co" },
+    { "key": "anon_key",          "value": "YOUR_ANON_KEY" },
+    { "key": "service_role_key",  "value": "YOUR_SERVICE_ROLE_KEY" },
+    { "key": "auth_token",        "value": "" },
+    { "key": "user_id",           "value": "" }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key",   "value": "apikey",        "type": "string" },
+      { "key": "value", "value": "{{anon_key}}",  "type": "string" },
+      { "key": "in",    "value": "header",         "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Supabase Auth endpoints. Run **Sign In** first to populate {{auth_token}} and {{user_id}}.",
+      "item": [
+        {
+          "name": "Sign In (email + password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",       "value": "{{anon_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/v1/token?grant_type=password",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "v1", "token"],
+              "query": [{ "key": "grant_type", "value": "password" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@countycars.com\",\n  \"password\": \"yourpassword\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Exchange email + password for a JWT access_token.\n\nThe test script auto-saves `auth_token` and `user_id` to the environment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.access_token) {",
+                  "  pm.environment.set('auth_token', json.access_token);",
+                  "}",
+                  "if (json.user && json.user.id) {",
+                  "  pm.environment.set('user_id', json.user.id);",
+                  "}",
+                  "pm.test('Sign in successful', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(json).to.have.property('access_token');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Session (validate current token)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",         "value": "{{anon_key}}" },
+              { "key": "Authorization",  "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/v1/user",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "v1", "user"]
+            },
+            "description": "Returns the authenticated user object for the current JWT. Corresponds to `supabase.auth.getUser()` / `auth.getSession()` used on every API route to validate the session."
+          }
+        },
+        {
+          "name": "Sign Out",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/v1/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "v1", "logout"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Invalidates the current session JWT. Corresponds to `supabase.auth.signOut()` called in Topbar.tsx and Sidebar.tsx."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('auth_token', '');",
+                  "pm.environment.set('user_id', '');",
+                  "pm.test('Signed out', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset Password for Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",       "value": "{{anon_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/v1/recover",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "v1", "recover"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"driver@countycars.com\",\n  \"redirectTo\": \"https://YOUR_APP_DOMAIN/reset-password\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Sends a password-reset email. Corresponds to `supabase.auth.resetPasswordForEmail(email, { redirectTo })` called in `app/dashboard/admin/users/page.tsx`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "Manage system notifications. Most endpoints require `{{auth_token}}`.\n\nKey table: `notifications`.\n\n### Notification types\n| Type | Inserted by | Who sees it |\n|---|---|---|\n| `certificate_expiry` | `create_certificate_notifications` RPC | Admins (RBAC) |\n| `vehicle_breakdown` | `report_vehicle_breakdown` RPC | Admins (RBAC) |\n| `driver_tardiness` | `/api/tardiness` Next.js route | Admins (RBAC) |\n| `trip_cancellation` | `cancel-trip` Edge Function | Parent who cancelled + Admins |\n| `trip_restored` | `restore-trip` Edge Function (planned) | Parent + Admins |\n\n### RLS policies on `notifications`\n| Policy | Role | Rule | Plain English |\n|---|---|---|---|\n| `notifications_select_own` | authenticated | `recipient_user_id = auth.uid()` | User sees only rows addressed to them (parents) |\n| `rbac_notifications_select` | authenticated | `auth_has_any_permission([...])` | Dashboard users with `compliance/routes/passengers` permissions see ALL rows |\n| `Allow anon read notifications by token` | anon | `email_token IS NOT NULL` | Unauthenticated email-link requests see token-bearing rows |\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED",
+      "item": [
+        {
+          "name": "Get Notification by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?id=eq.1&select=*",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "select", "value": "*" }
+              ]
+            },
+            "description": "Fetch a single notification record by ID. Used in resolve, dismiss, send-email, and get-recipients routes."
+          }
+        },
+        {
+          "name": "List Pending Notifications (count)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Prefer",        "value": "count=exact" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?select=id&or=(status.eq.pending,admin_response_required.eq.true)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [
+                { "key": "select", "value": "id" },
+                { "key": "or",     "value": "(status.eq.pending,admin_response_required.eq.true)" }
+              ]
+            },
+            "description": "Returns count of notifications that need admin attention. Used by `useNotificationCount` hook for the badge counter in the sidebar."
+          }
+        },
+        {
+          "name": "List Compliance Notifications (count)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Prefer",        "value": "count=exact" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?select=id&notification_type=eq.certificate_expiry&or=(status.eq.pending,admin_response_required.eq.true)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [
+                { "key": "select",            "value": "id" },
+                { "key": "notification_type", "value": "eq.certificate_expiry" },
+                { "key": "or",                "value": "(status.eq.pending,admin_response_required.eq.true)" }
+              ]
+            },
+            "description": "Count of certificate-expiry compliance notifications. Used by `useComplianceNotificationCount` hook."
+          }
+        },
+        {
+          "name": "List Route Activity Notifications (count)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Prefer",        "value": "count=exact" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?select=id&notification_type=in.(vehicle_breakdown,driver_tardiness)&status=eq.pending",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [
+                { "key": "select",            "value": "id" },
+                { "key": "notification_type", "value": "in.(vehicle_breakdown,driver_tardiness)" },
+                { "key": "status",            "value": "eq.pending" }
+              ]
+            },
+            "description": "Count of breakdown/tardiness notifications. Used by `useRouteActivityNotificationCount` hook."
+          }
+        },
+        {
+          "name": "Resolve Notification",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\",\n  \"resolved_at\": \"2026-03-24T12:00:00.000Z\",\n  \"admin_response_required\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Marks a notification as resolved. Called by `POST /api/notifications/resolve`. Also updates the linked `vehicle_breakdowns` record if `notification_type = vehicle_breakdown`."
+          }
+        },
+        {
+          "name": "Dismiss Notification",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"dismissed\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Dismisses a notification without resolving it. Called by `POST /api/notifications/dismiss`."
+          }
+        },
+        {
+          "name": "Mark Notification Sent",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"sent\",\n  \"email_sent_at\": \"2026-03-24T12:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Updates notification after email is dispatched (`POST /api/notifications/send-email`)."
+          }
+        },
+        {
+          "name": "Update Notification – Employee Response",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employee_response_type\": \"appointment_booked\",\n  \"employee_response_details\": {\n    \"appointmentDate\": \"24 March 2026\",\n    \"slotStart\": \"2026-03-24T09:00:00.000Z\",\n    \"slotEnd\": \"2026-03-24T09:30:00.000Z\"\n  },\n  \"employee_response_received_at\": \"2026-03-24T08:55:00.000Z\",\n  \"admin_response_required\": true,\n  \"status\": \"sent\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Records the employee's response (booked appointment or uploaded document). Sets `admin_response_required = true` to trigger admin notification badge."
+          }
+        },
+        {
+          "name": "Refresh Certificate Notifications (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "refresh"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Next.js API route that calls the `create_certificate_notifications` Postgres RPC. Regenerates all certificate-expiry notifications based on current document expiry dates."
+          }
+        },
+        {
+          "name": "Check create_certificate_notifications function (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/check-function",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "check-function"]
+            },
+            "description": "Checks whether the `create_certificate_notifications` PostgreSQL function exists. Uses `rpc/pg_get_function_identity_arguments`."
+          }
+        },
+        {
+          "name": "Get Notification Recipients (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/get-recipients?notificationId=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "get-recipients"],
+              "query": [{ "key": "notificationId", "value": "1" }]
+            },
+            "description": "Returns the list of email recipients for a notification. Joins `notifications → routes → employees` to find driver and PA emails."
+          }
+        },
+        {
+          "name": "Get Email Template (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/get-email-template?notificationId=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "get-email-template"],
+              "query": [{ "key": "notificationId", "value": "1" }]
+            },
+            "description": "Builds and returns the HTML email template for a notification, including vehicle registration and employee name."
+          }
+        },
+        {
+          "name": "Send Email Notification (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/send-email",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "send-email"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notificationId\": 1,\n  \"recipientEmail\": \"driver@countycars.com\",\n  \"subject\": \"Action Required: Certificate Expiry\",\n  \"htmlBody\": \"<p>Your TAS badge expires on 31 March 2026.</p>\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Sends an email for a notification and updates its status to `sent`. Also places a hold on the related entity (vehicle/driver/PA) if required."
+          }
+        },
+        {
+          "name": "Get Notify Summary (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/notify-summary",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "notify-summary"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notificationId\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Records a document_upload employee response on a notification and inserts a `system_activities` record."
+          }
+        },
+        {
+          "name": "List My Notifications (parent – Flutter)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?select=*&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.desc" }
+              ]
+            },
+            "description": "Returns notifications visible to the authenticated user. No filter parameter needed — Postgres applies the correct RLS policy automatically based on the JWT.\n\n**For parents (Flutter app):** Returns only `trip_cancellation` and `trip_restored` rows where `recipient_user_id = auth.uid()`. Enforced by the `notifications_select_own` RLS policy. Using service_role_key as `apikey` bypasses this — always use anon key client-side.\n\n**For admins (dashboard):** Returns all rows. Enforced by `rbac_notifications_select` — requires any of: `compliance.read`, `compliance.write`, `reports.read`, `routes.read`, `routes.write`, `passengers.read`, `passengers.write`.\n\n**Equivalent Spring Boot concept:** This is like a `@PreFilter` on a repository that rewrites the WHERE clause based on the user's role — invisible to the API caller.\n\n**Expected response body for a parent:**\n```json\n[\n  {\n    \"id\": 150,\n    \"notification_type\": \"trip_cancellation\",\n    \"status\": \"pending\",\n    \"recipient_user_id\": \"<parent-uuid>\",\n    \"details\": {\n      \"passenger_name\": \"Mohammed Nawab\",\n      \"route_number\": \"Oakwood AM Route 3\",\n      \"session_type\": \"AM\",\n      \"trip_date\": \"2026-04-02\",\n      \"parent_name\": \"Margaret Thompson\",\n      \"reason\": \"Child is unwell\"\n    },\n    \"created_at\": \"2026-04-02T00:14:43.193082\"\n  }\n]\n```\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Appointments",
+      "description": "Appointment slots and public booking flow via email token.\n\nTables: `appointment_slots`, `appointment_bookings`, `notifications`.\n\nThe booking endpoint (`/book`) is **public** (no auth) — it is accessed via a link in the notification email containing a one-time `token`.",
+      "item": [
+        {
+          "name": "List Appointment Slots (with bookings)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/appointment_slots?select=*,appointment_bookings(id,notification_id,booked_by_email,booked_by_name,status,booked_at,notes)&order=slot_start.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "appointment_slots"],
+              "query": [
+                { "key": "select", "value": "*,appointment_bookings(id,notification_id,booked_by_email,booked_by_name,status,booked_at,notes)" },
+                { "key": "order",  "value": "slot_start.asc" }
+              ]
+            },
+            "description": "Returns all appointment slots with their bookings. Called by `GET /api/appointments/slots`."
+          }
+        },
+        {
+          "name": "Create Appointment Slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/appointment_slots",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "appointment_slots"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slot_start\": \"2026-04-01T09:00:00.000Z\",\n  \"slot_end\": \"2026-04-01T09:30:00.000Z\",\n  \"notes\": \"Morning compliance review\",\n  \"created_by\": 42\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Creates a new bookable appointment slot. `created_by` is the `users.id` of the admin. Called by `POST /api/appointments/slots`."
+          }
+        },
+        {
+          "name": "Get Slot by ID (for booking validation)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/appointment_slots?id=eq.1&select=slot_start,slot_end",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "appointment_slots"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "select", "value": "slot_start,slot_end" }
+              ]
+            },
+            "description": "Fetches slot timing before confirming a booking. Used within the public book endpoint. No auth required (public flow)."
+          }
+        },
+        {
+          "name": "Check Existing Booking for Slot",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/appointment_bookings?appointment_slot_id=eq.1&select=id",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "appointment_bookings"],
+              "query": [
+                { "key": "appointment_slot_id", "value": "eq.1" },
+                { "key": "select",              "value": "id" }
+              ]
+            },
+            "description": "Checks if a slot is already booked before allowing a new booking. Returns 406/null if already taken."
+          }
+        },
+        {
+          "name": "Book Appointment (public – via email token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",       "value": "{{anon_key}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Prefer",       "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/appointment_bookings",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "appointment_bookings"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"appointment_slot_id\": 1,\n  \"notification_id\": 101,\n  \"booked_by_email\": \"driver@countycars.com\",\n  \"booked_by_name\": \"John Smith\",\n  \"notes\": \"Happy to attend\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Creates a booking for a slot. Public endpoint — no Authorization header, uses anon_key only. The token in the email is validated by first looking up `notifications.email_token`. Called by `POST /api/appointments/book`."
+          }
+        },
+        {
+          "name": "Validate Email Token (look up notification by token)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/notifications?email_token=eq.TOKEN_FROM_EMAIL&select=*",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "notifications"],
+              "query": [
+                { "key": "email_token", "value": "eq.TOKEN_FROM_EMAIL" },
+                { "key": "select",      "value": "*" }
+              ]
+            },
+            "description": "Validates the one-time token from the booking email link. Returns the notification record including entity info. Replace `TOKEN_FROM_EMAIL` with the actual token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vehicles",
+      "description": "Vehicle CRUD, hold/unhold, compliance calendar, seating plans.\n\nMain table: `vehicles`. Related: `vehicle_breakdowns`, `vehicle_seating_plans`, `seating_plan_seats`, `vehicle_compliance_spare_assignments`.\n\nAdmin (service_role_key) requests are flagged individually.",
+      "item": [
+        {
+          "name": "List All Vehicles",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?select=*&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.desc" }
+              ]
+            },
+            "description": "Returns all vehicles ordered by creation date. From `lib/supabase/vehicles.ts → getVehicles()`."
+          }
+        },
+        {
+          "name": "List Spare Vehicles",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?select=*&spare_vehicle=eq.true&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [
+                { "key": "select",        "value": "*" },
+                { "key": "spare_vehicle", "value": "eq.true" },
+                { "key": "order",         "value": "created_at.desc" }
+              ]
+            },
+            "description": "Returns only vehicles flagged as spares."
+          }
+        },
+        {
+          "name": "Search Vehicles by Registration",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?select=*&registration=ilike.*AB12*&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [
+                { "key": "select",       "value": "*" },
+                { "key": "registration", "value": "ilike.*AB12*" },
+                { "key": "order",        "value": "created_at.desc" }
+              ]
+            },
+            "description": "Case-insensitive partial match on registration plate."
+          }
+        },
+        {
+          "name": "Get Vehicle – Identifier + Registration",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?id=eq.1&select=vehicle_identifier,registration",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "select", "value": "vehicle_identifier,registration" }
+              ]
+            },
+            "description": "Minimal vehicle fetch used in notification email templates and appointment booking."
+          }
+        },
+        {
+          "name": "Hold Vehicle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": true,\n  \"on_hold_reason\": \"Certificate expired\",\n  \"on_hold_notification_id\": 101,\n  \"on_hold_set_by\": 42,\n  \"on_hold_set_at\": \"2026-03-24T10:00:00.000Z\",\n  \"on_hold_cleared_at\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Places a vehicle on hold. Called by `POST /api/entities/hold` when `entity_type = vehicle`. Also cascades to hold the vehicle's assigned routes."
+          }
+        },
+        {
+          "name": "Unhold Vehicle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": false,\n  \"on_hold_reason\": null,\n  \"on_hold_notification_id\": null,\n  \"on_hold_set_by\": null,\n  \"on_hold_set_at\": null,\n  \"on_hold_cleared_at\": \"2026-03-24T14:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Clears a vehicle hold. Called by `POST /api/entities/unhold`."
+          }
+        },
+        {
+          "name": "Get Vehicle Expiry Dates (compliance calendar)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles?select=id,registration_expiry_date,plate_expiry_date,insurance_expiry_date,mot_date,tax_date,loler_expiry_date,first_aid_expiry,fire_extinguisher_expiry",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles"],
+              "query": [
+                { "key": "select", "value": "id,registration_expiry_date,plate_expiry_date,insurance_expiry_date,mot_date,tax_date,loler_expiry_date,first_aid_expiry,fire_extinguisher_expiry" }
+              ]
+            },
+            "description": "Fetches all vehicle expiry date fields for the compliance calendar summary and day views."
+          }
+        },
+        {
+          "name": "Compliance Calendar – Vehicle Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compliance/vehicles/calendar/summary?start=2026-03-01&end=2026-03-31",
+              "host": ["{{base_url}}"],
+              "path": ["api", "compliance", "vehicles", "calendar", "summary"],
+              "query": [
+                { "key": "start", "value": "2026-03-01" },
+                { "key": "end",   "value": "2026-03-31" }
+              ]
+            },
+            "description": "Next.js API — aggregates vehicle compliance events for a date range. Joins vehicles, subject_documents, document_vehicle_links, document_expiry_tolerance."
+          }
+        },
+        {
+          "name": "Compliance Calendar – Vehicle Day Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compliance/vehicles/calendar/day?date=2026-03-24",
+              "host": ["{{base_url}}"],
+              "path": ["api", "compliance", "vehicles", "calendar", "day"],
+              "query": [{ "key": "date", "value": "2026-03-24" }]
+            },
+            "description": "Returns detailed compliance events for a single day, including vehicle details, assigned drivers, and document links."
+          }
+        },
+        {
+          "name": "Assign Spare Vehicle (compliance)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_compliance_spare_assignments",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_compliance_spare_assignments"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": 1,\n  \"spare_vehicle_id\": 5,\n  \"document_id\": 10,\n  \"reason\": \"MOT due – vehicle off road\",\n  \"assigned_by\": \"{{user_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Records assignment of a spare vehicle during a compliance period. Called by `POST /api/compliance/vehicles/calendar/assign-spare`."
+          }
+        },
+        {
+          "name": "Revert Spare Vehicle Assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_compliance_spare_assignments?id=eq.1&reverted_at=is.null",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_compliance_spare_assignments"],
+              "query": [
+                { "key": "id",          "value": "eq.1" },
+                { "key": "reverted_at", "value": "is.null" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reverted_at\": \"2026-03-24T15:00:00.000Z\",\n  \"reverted_by\": \"{{user_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Marks a spare assignment as reverted. Called by `POST /api/compliance/vehicles/calendar/revert-spare`."
+          }
+        },
+        {
+          "name": "Get Active Seating Plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_seating_plans?vehicle_id=eq.1&is_active=eq.true&select=*",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_seating_plans"],
+              "query": [
+                { "key": "vehicle_id", "value": "eq.1" },
+                { "key": "is_active",  "value": "eq.true" },
+                { "key": "select",     "value": "*" }
+              ]
+            },
+            "description": "Returns the currently active seating plan for a vehicle. From `lib/supabase/vehicleSeating.ts → getVehicleSeatingPlan()`."
+          }
+        },
+        {
+          "name": "Get Seating Plan History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_seating_plans?vehicle_id=eq.1&select=*&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_seating_plans"],
+              "query": [
+                { "key": "vehicle_id", "value": "eq.1" },
+                { "key": "select",     "value": "*" },
+                { "key": "order",      "value": "created_at.desc" }
+              ]
+            },
+            "description": "All historical seating plans for a vehicle, newest first."
+          }
+        },
+        {
+          "name": "Deactivate Seating Plan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_seating_plans?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_seating_plans"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Deactivates a seating plan before creating/cloning a new one."
+          }
+        },
+        {
+          "name": "Clone Seating Plan to Another Vehicle (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/1/seating/clone",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "1", "seating", "clone"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourcePlanId\": 3,\n  \"targetVehicleId\": 2,\n  \"newPlanName\": \"Cloned from Vehicle 1\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Clones a seating plan (including all seats) from one vehicle to another. Deactivates any existing active plan on the target vehicle first."
+          }
+        },
+        {
+          "name": "Get Vehicle Field Audit Log (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/1/field-audit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "1", "field-audit"]
+            },
+            "description": "Returns `field_audit_log` entries for a vehicle, with user email and employee full name. Ordered by `change_time` descending."
+          }
+        },
+        {
+          "name": "Get Vehicle Sub-Routes (for TAS5)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/routes?vehicle_id=eq.1&select=id,route_number,am_start_time,pm_start_time,pm_start_time_friday,days_of_week,schools(id,name)&order=route_number.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "routes"],
+              "query": [
+                { "key": "vehicle_id", "value": "eq.1" },
+                { "key": "select",     "value": "id,route_number,am_start_time,pm_start_time,pm_start_time_friday,days_of_week,schools(id,name)" },
+                { "key": "order",      "value": "route_number.asc" }
+              ]
+            },
+            "description": "Routes assigned to a specific vehicle. Used in the TAS5 export flow and vehicle detail page."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Employees & Drivers",
+      "description": "Employee records, driver and passenger-assistant profiles, hold/unhold, compliance calendar, coordinator assignments.\n\nMain tables: `employees`, `drivers`, `passenger_assistants`, `coordinator_school_assignments`, `field_audit_log`.",
+      "item": [
+        {
+          "name": "Get Employee Detail (with driver + PA joins)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/employees?id=eq.1&select=*,drivers(tas_badge_number,tas_badge_expiry_date,taxi_badge_number,taxi_badge_expiry_date,dbs_expiry_date,psv_license,self_employed,first_aid_certificate_expiry_date,passport_expiry_date,driving_license_expiry_date,cpc_expiry_date,utility_bill_date,vehicle_insurance_expiry_date,mot_expiry_date,birth_certificate,marriage_certificate,photo_taken,private_hire_badge,paper_licence,taxi_plate_photo,logbook,safeguarding_training_completed,safeguarding_training_date,tas_pats_training_completed,tas_pats_training_date,psa_training_completed,psa_training_date,additional_notes),passenger_assistants(id,tas_badge_number,tas_badge_expiry_date,dbs_expiry_date)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "employees"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "select", "value": "*,drivers(tas_badge_number,tas_badge_expiry_date,taxi_badge_number,taxi_badge_expiry_date,dbs_expiry_date,psv_license,self_employed,first_aid_certificate_expiry_date,passport_expiry_date,driving_license_expiry_date,cpc_expiry_date,utility_bill_date,vehicle_insurance_expiry_date,mot_expiry_date,birth_certificate,marriage_certificate,photo_taken,private_hire_badge,paper_licence,taxi_plate_photo,logbook,safeguarding_training_completed,safeguarding_training_date,tas_pats_training_completed,tas_pats_training_date,psa_training_completed,psa_training_date,additional_notes),passenger_assistants(id,tas_badge_number,tas_badge_expiry_date,dbs_expiry_date)" }
+              ]
+            },
+            "description": "Full employee record including all driver certification fields and PA badge info. Called by `GET /api/employees/[id]/detail`."
+          }
+        },
+        {
+          "name": "Get Employee by Email",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/employees?personal_email=eq.driver%40countycars.com&select=id,role,personal_email",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "employees"],
+              "query": [
+                { "key": "personal_email", "value": "eq.driver@countycars.com" },
+                { "key": "select",         "value": "id,role,personal_email" }
+              ]
+            },
+            "description": "Look up an employee by personal email. Used in tardiness approval/decline to identify the coordinator."
+          }
+        },
+        {
+          "name": "Get Employee Field Audit Log (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/employees/1/field-audit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "employees", "1", "field-audit"]
+            },
+            "description": "Returns `field_audit_log` records for `table_name = employees`, with `users.email` and `employees.full_name`. Ordered by `change_time` desc."
+          }
+        },
+        {
+          "name": "Get Coordinator School Assignments",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/coordinator_school_assignments?employee_id=eq.1&select=school_id,schools(id,name)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "coordinator_school_assignments"],
+              "query": [
+                { "key": "employee_id", "value": "eq.1" },
+                { "key": "select",      "value": "school_id,schools(id,name)" }
+              ]
+            },
+            "description": "Schools assigned to a coordinator employee. From `GET /api/employees/[id]/coordinator-schools`."
+          }
+        },
+        {
+          "name": "List All Drivers (compliance calendar)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/drivers?select=employee_id,tas_badge_expiry_date,taxi_badge_expiry_date,dbs_expiry_date,first_aid_certificate_expiry_date,passport_expiry_date,driving_license_expiry_date,cpc_expiry_date,vehicle_insurance_expiry_date,mot_expiry_date,employees(full_name)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "drivers"],
+              "query": [
+                { "key": "select", "value": "employee_id,tas_badge_expiry_date,taxi_badge_expiry_date,dbs_expiry_date,first_aid_certificate_expiry_date,passport_expiry_date,driving_license_expiry_date,cpc_expiry_date,vehicle_insurance_expiry_date,mot_expiry_date,employees(full_name)" }
+              ]
+            },
+            "description": "All driver expiry dates for the employee compliance calendar summary and day views."
+          }
+        },
+        {
+          "name": "Get Driver by Employee ID (incident export)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/drivers?employee_id=eq.1&select=tas_badge_number,employees(full_name)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "drivers"],
+              "query": [
+                { "key": "employee_id", "value": "eq.1" },
+                { "key": "select",      "value": "tas_badge_number,employees(full_name)" }
+              ]
+            },
+            "description": "Driver badge number and full name for TR5/TR7 incident export forms."
+          }
+        },
+        {
+          "name": "List Drivers for Spares Modal",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/drivers?select=employee_id,employees(full_name)&order=employee_id.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "drivers"],
+              "query": [
+                { "key": "select", "value": "employee_id,employees(full_name)" },
+                { "key": "order",  "value": "employee_id.asc" }
+              ]
+            },
+            "description": "Minimal driver list for the ManageSparesModal dropdown."
+          }
+        },
+        {
+          "name": "Hold Driver",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/drivers?employee_id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "drivers"],
+              "query": [{ "key": "employee_id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": true,\n  \"on_hold_reason\": \"TAS badge expired\",\n  \"on_hold_notification_id\": 101,\n  \"on_hold_set_by\": 42,\n  \"on_hold_set_at\": \"2026-03-24T10:00:00.000Z\",\n  \"on_hold_cleared_at\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Places a driver on hold. Called by `POST /api/entities/hold` when `entity_type = driver`. Cascades to hold the driver's assigned routes."
+          }
+        },
+        {
+          "name": "Unhold Driver",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/drivers?employee_id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "drivers"],
+              "query": [{ "key": "employee_id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": false,\n  \"on_hold_reason\": null,\n  \"on_hold_notification_id\": null,\n  \"on_hold_set_by\": null,\n  \"on_hold_set_at\": null,\n  \"on_hold_cleared_at\": \"2026-03-24T14:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Clears a driver hold. Called by `POST /api/entities/unhold`."
+          }
+        },
+        {
+          "name": "List All Passenger Assistants (compliance calendar)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/passenger_assistants?select=id,employee_id,tas_badge_expiry_date,dbs_expiry_date,employees(full_name)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "passenger_assistants"],
+              "query": [
+                { "key": "select", "value": "id,employee_id,tas_badge_expiry_date,dbs_expiry_date,employees(full_name)" }
+              ]
+            },
+            "description": "All PA expiry dates for compliance calendar summary and day views."
+          }
+        },
+        {
+          "name": "Get PA QR Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/passenger_assistants?id=eq.1&select=qr_token,employees(full_name)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "passenger_assistants"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "select", "value": "qr_token,employees(full_name)" }
+              ]
+            },
+            "description": "Returns the QR token and full name for a PA. Used in PassengerAssistantQRCode to generate a scannable QR code for document uploads."
+          }
+        },
+        {
+          "name": "Get PA by QR Token (public document upload)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/passenger_assistants?qr_token=eq.QR_TOKEN_HERE&select=id",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "passenger_assistants"],
+              "query": [
+                { "key": "qr_token", "value": "eq.QR_TOKEN_HERE" },
+                { "key": "select",   "value": "id" }
+              ]
+            },
+            "description": "Looks up a PA by QR token. Public endpoint (anon key only, no auth). Used in `lib/supabase/assistantDocuments.ts`."
+          }
+        },
+        {
+          "name": "List PAs for Spares Modal",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/passenger_assistants?select=employee_id,employees(full_name)&order=employee_id.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "passenger_assistants"],
+              "query": [
+                { "key": "select", "value": "employee_id,employees(full_name)" },
+                { "key": "order",  "value": "employee_id.asc" }
+              ]
+            },
+            "description": "Minimal PA list for the ManageSparesModal dropdown."
+          }
+        },
+        {
+          "name": "Hold Passenger Assistant",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/passenger_assistants?employee_id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "passenger_assistants"],
+              "query": [{ "key": "employee_id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": true,\n  \"on_hold_reason\": \"DBS expired\",\n  \"on_hold_notification_id\": 102,\n  \"on_hold_set_by\": 42,\n  \"on_hold_set_at\": \"2026-03-24T10:00:00.000Z\",\n  \"on_hold_cleared_at\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Places a PA on hold. Called by `POST /api/entities/hold` when `entity_type = passenger_assistant`."
+          }
+        },
+        {
+          "name": "Unhold Passenger Assistant",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/passenger_assistants?employee_id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "passenger_assistants"],
+              "query": [{ "key": "employee_id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": false,\n  \"on_hold_reason\": null,\n  \"on_hold_notification_id\": null,\n  \"on_hold_set_by\": null,\n  \"on_hold_set_at\": null,\n  \"on_hold_cleared_at\": \"2026-03-24T14:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Clears a PA hold. Called by `POST /api/entities/unhold`."
+          }
+        },
+        {
+          "name": "Compliance Calendar – Employee Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compliance/employees/calendar/summary?start=2026-03-01&end=2026-03-31",
+              "host": ["{{base_url}}"],
+              "path": ["api", "compliance", "employees", "calendar", "summary"],
+              "query": [
+                { "key": "start", "value": "2026-03-01" },
+                { "key": "end",   "value": "2026-03-31" }
+              ]
+            },
+            "description": "Next.js API — aggregates driver and PA certificate expiry events for a date range."
+          }
+        },
+        {
+          "name": "Compliance Calendar – Employee Day Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compliance/employees/calendar/day?date=2026-03-24",
+              "host": ["{{base_url}}"],
+              "path": ["api", "compliance", "employees", "calendar", "day"],
+              "query": [{ "key": "date", "value": "2026-03-24" }]
+            },
+            "description": "Detailed employee compliance events for a single day."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Routes",
+      "description": "Route records, hold/unhold cascade, TR1 export, field audit, spares.\n\nMain table: `routes`. Related: `schools`, `drivers`, `passenger_assistants`, `vehicles`, `route_spares`.",
+      "item": [
+        {
+          "name": "List Routes Assigned to Vehicle",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/routes?vehicle_id=eq.1&select=id,route_number,am_start_time,pm_start_time,pm_start_time_friday,days_of_week,schools(id,name)&order=route_number.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "routes"],
+              "query": [
+                { "key": "vehicle_id", "value": "eq.1" },
+                { "key": "select",     "value": "id,route_number,am_start_time,pm_start_time,pm_start_time_friday,days_of_week,schools(id,name)" },
+                { "key": "order",      "value": "route_number.asc" }
+              ]
+            },
+            "description": "Routes for a specific vehicle. Used in vehicle detail page and TAS5 export."
+          }
+        },
+        {
+          "name": "Get Route Notification Recipients",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/routes?vehicle_id=eq.1&select=driver_id,passenger_assistant_id,driver:driver_id(employees(full_name,personal_email)),pa:passenger_assistant_id(employees(full_name,personal_email))&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "routes"],
+              "query": [
+                { "key": "vehicle_id", "value": "eq.1" },
+                { "key": "select",     "value": "driver_id,passenger_assistant_id,driver:driver_id(employees(full_name,personal_email)),pa:passenger_assistant_id(employees(full_name,personal_email))" },
+                { "key": "limit",      "value": "20" }
+              ]
+            },
+            "description": "Gets driver and PA names/emails for routes assigned to a vehicle. Used in `GET /api/notifications/get-recipients`."
+          }
+        },
+        {
+          "name": "Hold Routes (by vehicle_id)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/routes?vehicle_id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "routes"],
+              "query": [{ "key": "vehicle_id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": true,\n  \"on_hold_reason\": \"Vehicle off-road – MOT\",\n  \"on_hold_notification_id\": 101,\n  \"on_hold_set_by\": 42,\n  \"on_hold_set_at\": \"2026-03-24T10:00:00.000Z\",\n  \"on_hold_cleared_at\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Places all routes for a vehicle on hold. Cascaded from `POST /api/entities/hold`. Can also filter by `driver_id` or `passenger_assistant_id`."
+          }
+        },
+        {
+          "name": "Unhold Routes (by vehicle_id)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/routes?vehicle_id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "routes"],
+              "query": [{ "key": "vehicle_id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"on_hold\": false,\n  \"on_hold_reason\": null,\n  \"on_hold_notification_id\": null,\n  \"on_hold_set_by\": null,\n  \"on_hold_set_at\": null,\n  \"on_hold_cleared_at\": \"2026-03-24T14:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Clears hold on all routes for a vehicle. Cascaded from `POST /api/entities/unhold`."
+          }
+        },
+        {
+          "name": "Export Route TR1 (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/routes/1/export-tr1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "routes", "1", "export-tr1"]
+            },
+            "description": "Generates the TR1 SEN Transport Record. Fetches route + school + driver + PA + vehicle + passengers and fills the HTML template."
+          }
+        },
+        {
+          "name": "Get Route Field Audit Log (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/routes/1/field-audit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "routes", "1", "field-audit"]
+            },
+            "description": "Returns `field_audit_log` for `table_name = routes`, ordered by `change_time` desc."
+          }
+        },
+        {
+          "name": "Insert Route Spare",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/route_spares",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "route_spares"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"route_id\": 1,\n  \"spare_type\": \"driver\",\n  \"driver_employee_id\": 5,\n  \"starts_at\": \"2026-03-25T06:00:00.000Z\",\n  \"ends_at\": null,\n  \"reason\": \"Primary driver on leave\",\n  \"is_active\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Assigns a spare driver, PA, or vehicle to a route. `spare_type`: `driver` | `pa` | `vehicle`. From ManageSparesModal."
+          }
+        },
+        {
+          "name": "Get Route Spares (RPC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/get_route_spares",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "get_route_spares"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_route_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Calls `get_route_spares(p_route_id)` PostgreSQL function. Returns active spare assignments for a route. Used in `hooks/useRouteSpares.ts`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Incidents",
+      "description": "Incident records and official form exports (TR5, TR6, TR7).\n\nMain tables: `incidents`, `incident_employees`, `incident_passengers`, `route_sessions`, `documents`.\n\n**All endpoints require `{{auth_token}}`.**\n\nExport endpoints call the Next.js API which fetches all related data and fills the official HTML form template.",
+      "item": [
+        {
+          "name": "Get Incident by ID (with joins)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/incidents?id=eq.1&select=*,vehicles(id,vehicle_identifier,registration,plate_number),routes(id,route_number),route_sessions(id,session_date,session_type,driver_id,passenger_assistant_id)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "incidents"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "select", "value": "*,vehicles(id,vehicle_identifier,registration,plate_number),routes(id,route_number),route_sessions(id,session_date,session_type,driver_id,passenger_assistant_id)" }
+              ]
+            },
+            "description": "Full incident record with vehicle, route, and session details. Used in all three export routes."
+          }
+        },
+        {
+          "name": "Get Incident Employees (with employee join)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/incident_employees?incident_id=eq.1&select=*,employees(id,full_name,role)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "incident_employees"],
+              "query": [
+                { "key": "incident_id", "value": "eq.1" },
+                { "key": "select",      "value": "*,employees(id,full_name,role)" }
+              ]
+            },
+            "description": "All employees involved in an incident. Used in TR5 and TR7 exports."
+          }
+        },
+        {
+          "name": "Get Incident Passengers (TR5 – with passenger join)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/incident_passengers?incident_id=eq.1&select=*,passengers(id,full_name)",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "incident_passengers"],
+              "query": [
+                { "key": "incident_id", "value": "eq.1" },
+                { "key": "select",      "value": "*,passengers(id,full_name)" }
+              ]
+            },
+            "description": "Passengers involved in an incident. Used in TR5 export."
+          }
+        },
+        {
+          "name": "Get Incident Passengers (TR7 – with school join)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/incident_passengers?incident_id=eq.1&select=*,passengers(id,full_name,schools(name))",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "incident_passengers"],
+              "query": [
+                { "key": "incident_id", "value": "eq.1" },
+                { "key": "select",      "value": "*,passengers(id,full_name,schools(name))" }
+              ]
+            },
+            "description": "Passengers with school names for TR7 export."
+          }
+        },
+        {
+          "name": "Get Saved TR5 Document URL",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/documents?owner_type=eq.incident&owner_id=eq.1&doc_type=eq.TR5 Form&select=file_url&order=uploaded_at.desc&limit=1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "documents"],
+              "query": [
+                { "key": "owner_type", "value": "eq.incident" },
+                { "key": "owner_id",   "value": "eq.1" },
+                { "key": "doc_type",   "value": "eq.TR5 Form" },
+                { "key": "select",     "value": "file_url" },
+                { "key": "order",      "value": "uploaded_at.desc" },
+                { "key": "limit",      "value": "1" }
+              ]
+            },
+            "description": "Fetches the most recently saved TR5 form document URL for an incident. Same pattern applies for `TR6 Form` and `TR7 Form` — change `doc_type` accordingly."
+          }
+        },
+        {
+          "name": "Export Incident TR5 (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/incidents/1/export-tr5",
+              "host": ["{{base_url}}"],
+              "path": ["api", "incidents", "1", "export-tr5"]
+            },
+            "description": "Generates the TR5 Vehicle Incident Report. Fetches incident + vehicle + route + session + driver + PA + incident_employees + incident_passengers. Fills and returns the official HTML form. Saves a `documents` record with `doc_type = TR5 Form`."
+          }
+        },
+        {
+          "name": "Export Incident TR6 (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/incidents/1/export-tr6",
+              "host": ["{{base_url}}"],
+              "path": ["api", "incidents", "1", "export-tr6"]
+            },
+            "description": "Generates the TR6 form. Fetches incident + vehicle + route + session details. Saves a `documents` record with `doc_type = TR6 Form`."
+          }
+        },
+        {
+          "name": "Export Incident TR7 (Next.js API)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/incidents/1/export-tr7",
+              "host": ["{{base_url}}"],
+              "path": ["api", "incidents", "1", "export-tr7"]
+            },
+            "description": "Generates the TR7 SEN Pupil Incident Report. Fetches incident + vehicle + route + session + driver + PA + incident_employees + incident_passengers (with school names). Saves a `documents` record with `doc_type = TR7 Form`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tardiness & Breakdowns",
+      "description": "Driver tardiness reports (submit, approve, decline) and vehicle breakdown reports (report, find replacement, assign replacement).\n\nMain tables: `tardiness_reports`, `vehicle_breakdowns`, `notifications`, `route_sessions`.\n\nBreakdown RPCs: `report_vehicle_breakdown`, `find_replacement_vehicle`, `assign_replacement_vehicle`.",
+      "item": [
+        {
+          "name": "Report Driver Tardiness (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tardiness/report",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tardiness", "report"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driver_id\": 1,\n  \"route_id\": 10,\n  \"session_type\": \"AM\",\n  \"session_date\": \"2026-03-24\",\n  \"reason\": \"Traffic delays on A12\",\n  \"additional_notes\": \"Arrived 15 minutes late\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Inserts a `tardiness_reports` record and calls `create_tardiness_notification` RPC to generate a notification. Also checks for an existing `route_sessions` record for that date."
+          }
+        },
+        {
+          "name": "Insert Tardiness Report (direct PostgREST)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/tardiness_reports",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "tardiness_reports"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driver_id\": 1,\n  \"route_id\": 10,\n  \"route_session_id\": 5,\n  \"session_type\": \"AM\",\n  \"session_date\": \"2026-03-24\",\n  \"reason\": \"Traffic delays on A12\",\n  \"additional_notes\": \"Arrived 15 minutes late\",\n  \"status\": \"pending\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Direct insert into `tardiness_reports`. Use the Next.js API route instead in production — it also triggers the notification RPC."
+          }
+        },
+        {
+          "name": "Approve Tardiness Report (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tardiness/approve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tardiness", "approve"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tardinessReportId\": 1,\n  \"coordinatorNotes\": \"Accepted – traffic confirmed\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Sets `tardiness_reports.status = approved`, records coordinator details, and resolves the linked `notifications` record."
+          }
+        },
+        {
+          "name": "Decline Tardiness Report (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tardiness/decline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tardiness", "decline"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tardinessReportId\": 1,\n  \"coordinatorNotes\": \"Insufficient evidence provided\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Sets `tardiness_reports.status = declined`, records coordinator details, and resolves the linked notification."
+          }
+        },
+        {
+          "name": "Update Tardiness Report – Approve (direct PostgREST)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/tardiness_reports?id=eq.1&status=eq.pending",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "tardiness_reports"],
+              "query": [
+                { "key": "id",     "value": "eq.1" },
+                { "key": "status", "value": "eq.pending" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"coordinator_id\": 42,\n  \"coordinator_notes\": \"Accepted – traffic confirmed\",\n  \"reviewed_at\": \"2026-03-24T11:00:00.000Z\",\n  \"updated_at\": \"2026-03-24T11:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Direct PostgREST PATCH. The filter `status=eq.pending` prevents double-processing. Use the Next.js API route in production."
+          }
+        },
+        {
+          "name": "Report Vehicle Breakdown (RPC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/report_vehicle_breakdown",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "report_vehicle_breakdown"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_route_session_id\": 5,\n  \"p_description\": \"Engine warning light on – vehicle unable to continue route\",\n  \"p_location\": \"Junction 14, A12 Eastbound\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Calls `report_vehicle_breakdown(p_route_session_id, p_description, p_location)`. Creates a `vehicle_breakdowns` record and a linked `notifications` record in one transaction. From `POST /api/breakdowns/report`."
+          }
+        },
+        {
+          "name": "Find Replacement Vehicle (RPC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/find_replacement_vehicle",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "find_replacement_vehicle"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_vehicle_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Calls `find_replacement_vehicle(p_vehicle_id)`. Returns a list of available spare vehicles that can replace the broken-down vehicle. From `GET /api/breakdowns/[id]/replacement`."
+          }
+        },
+        {
+          "name": "Assign Replacement Vehicle (RPC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/assign_replacement_vehicle",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "assign_replacement_vehicle"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_breakdown_id\": 1,\n  \"p_replacement_vehicle_id\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Calls `assign_replacement_vehicle(p_breakdown_id, p_replacement_vehicle_id)`. Links the replacement vehicle to the breakdown record. From `POST /api/breakdowns/[id]/replacement`."
+          }
+        },
+        {
+          "name": "Resolve Breakdown (update vehicle_breakdowns)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_breakdowns?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_breakdowns"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\",\n  \"resolved_at\": \"2026-03-24T13:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Marks a breakdown as resolved. Called as part of `POST /api/notifications/resolve` when `notification_type = vehicle_breakdown`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents & Requirements",
+      "description": "Document requirements configuration, subject documents (certificates), document–entity link tables, document download, and the assistant QR document upload flow.\n\nMain tables: `document_requirements`, `subject_documents`, `documents`, `document_vehicle_links`, `document_driver_links`, `document_pa_links`, `document_subject_document_links`.\n\nStorage bucket download is handled by the Next.js API proxy at `/api/documents/view`.",
+      "item": [
+        {
+          "name": "List Document Requirements",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_requirements?select=*&order=name.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_requirements"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "name.asc" }
+              ]
+            },
+            "description": "All document requirement types. Optional filters: `subject_type`, `criticality`, `is_active`, `is_required`. Used in DynamicCertificatesForm and subject-documents API."
+          }
+        },
+        {
+          "name": "List Document Requirements – filtered by subject_type",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_requirements?select=*&subject_type=eq.driver&is_active=eq.true&order=name.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_requirements"],
+              "query": [
+                { "key": "select",       "value": "*" },
+                { "key": "subject_type", "value": "eq.driver" },
+                { "key": "is_active",    "value": "eq.true" },
+                { "key": "order",        "value": "name.asc" }
+              ]
+            },
+            "description": "Requirements filtered by subject type. Valid values: `driver`, `pa`, `vehicle`, `employee`."
+          }
+        },
+        {
+          "name": "Get Document Requirement by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_requirements?id=eq.abc-uuid&select=*",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_requirements"],
+              "query": [
+                { "key": "id",     "value": "eq.abc-uuid" },
+                { "key": "select", "value": "*" }
+              ]
+            },
+            "description": "Single requirement by ID. From `GET /api/admin/document-requirements/[id]`."
+          }
+        },
+        {
+          "name": "Create Document Requirement",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_requirements",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_requirements"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TAS Badge\",\n  \"code\": \"TAS\",\n  \"subject_type\": \"driver\",\n  \"requires_expiry\": true,\n  \"requires_upload\": true,\n  \"requires_number\": true,\n  \"criticality\": \"high\",\n  \"default_validity_days\": 365,\n  \"renewal_notice_days\": 30,\n  \"is_required\": true,\n  \"is_active\": true,\n  \"icon_path\": null,\n  \"color\": \"#ef4444\",\n  \"created_by\": 42,\n  \"updated_by\": 42\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Creates a new document requirement type. From `POST /api/admin/document-requirements`."
+          }
+        },
+        {
+          "name": "Update Document Requirement",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_requirements?id=eq.abc-uuid",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_requirements"],
+              "query": [{ "key": "id", "value": "eq.abc-uuid" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"renewal_notice_days\": 45,\n  \"updated_by\": 42,\n  \"updated_at\": \"2026-03-24T10:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Updates a document requirement. From `PATCH /api/admin/document-requirements/[id]`."
+          }
+        },
+        {
+          "name": "Delete Document Requirement",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_requirements?id=eq.abc-uuid",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_requirements"],
+              "query": [{ "key": "id", "value": "eq.abc-uuid" }]
+            },
+            "description": "Deletes a requirement. The Next.js API first checks `subject_documents.count` for that `requirement_id` — if any exist it returns 409. From `DELETE /api/admin/document-requirements/[id]`."
+          }
+        },
+        {
+          "name": "List Subject Documents (with joins)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/subject_documents?driver_employee_id=eq.1&select=*,document_requirements(*),document_subject_document_links(document_id,documents(id,file_name,file_url,file_path))&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "subject_documents"],
+              "query": [
+                { "key": "driver_employee_id", "value": "eq.1" },
+                { "key": "select",             "value": "*,document_requirements(*),document_subject_document_links(document_id,documents(id,file_name,file_url,file_path))" },
+                { "key": "order",              "value": "created_at.desc" }
+              ]
+            },
+            "description": "Subject documents for a driver. Change filter to `pa_employee_id`, `vehicle_id`, or `employee_id` for other subject types. From `GET /api/admin/subject-documents`."
+          }
+        },
+        {
+          "name": "Create Subject Document",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/subject_documents",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "subject_documents"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requirement_id\": \"abc-uuid\",\n  \"subject_type\": \"driver\",\n  \"driver_employee_id\": 1,\n  \"status\": \"valid\",\n  \"certificate_number\": \"TAS-2024-00123\",\n  \"issue_date\": \"2024-03-01\",\n  \"expiry_date\": \"2025-03-01\",\n  \"notes\": null,\n  \"created_by\": 42,\n  \"updated_by\": 42\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Creates a subject document (certificate record). From `POST /api/admin/subject-documents`."
+          }
+        },
+        {
+          "name": "Update Subject Document",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/subject_documents?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "subject_documents"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expiry_date\": \"2026-03-01\",\n  \"status\": \"valid\",\n  \"updated_by\": 42,\n  \"updated_at\": \"2026-03-24T10:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Updates a subject document. From `PATCH /api/admin/subject-documents/[id]`."
+          }
+        },
+        {
+          "name": "Delete Subject Document",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/subject_documents?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "subject_documents"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "description": "Deletes a subject document record. From `DELETE /api/admin/subject-documents/[id]`."
+          }
+        },
+        {
+          "name": "Mark Subject Document Valid (after upload)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/subject_documents?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "subject_documents"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"valid\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Sets `status = valid` after a document file is uploaded via SubjectDocumentsChecklist. Browser client (anon key)."
+          }
+        },
+        {
+          "name": "Insert Document Record",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/documents",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "documents"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"file_name\": \"tas-badge-2026.pdf\",\n  \"file_type\": \"application/pdf\",\n  \"file_path\": \"subject-documents/driver/1/abc-uuid_1711234567890.pdf\",\n  \"file_url\": \"https://YOUR_PROJECT_REF.supabase.co/storage/v1/object/public/DRIVER_DOCUMENTS/subject-documents/driver/1/abc-uuid_1711234567890.pdf\",\n  \"doc_type\": \"TAS Badge\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Inserts a document metadata record after a successful storage upload. From SubjectDocumentsChecklist and BadgePhotoUpload components. Returns `id` for subsequent link inserts."
+          }
+        },
+        {
+          "name": "Link Document to Vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_vehicle_links",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_vehicle_links"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_id\": 100,\n  \"vehicle_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Associates a document with a vehicle. Created after inserting the `documents` record. From SubjectDocumentsChecklist."
+          }
+        },
+        {
+          "name": "Link Document to Driver",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_driver_links",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_driver_links"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_id\": 100,\n  \"driver_employee_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Associates a document with a driver. From SubjectDocumentsChecklist."
+          }
+        },
+        {
+          "name": "Link Document to Passenger Assistant",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_pa_links",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_pa_links"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_id\": 100,\n  \"pa_employee_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Associates a document with a passenger assistant. From SubjectDocumentsChecklist and assistants create/edit pages."
+          }
+        },
+        {
+          "name": "Link Document to Subject Document",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_subject_document_links",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_subject_document_links"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_id\": 100,\n  \"subject_document_id\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Links an uploaded file to its `subject_documents` certificate record. From SubjectDocumentsChecklist and assistants pages."
+          }
+        },
+        {
+          "name": "Download / View Document (Next.js API proxy)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/documents/view?bucket=DRIVER_DOCUMENTS&path=subject-documents/driver/1/abc-uuid_1711234567890.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["api", "documents", "view"],
+              "query": [
+                { "key": "bucket", "value": "DRIVER_DOCUMENTS" },
+                { "key": "path",   "value": "subject-documents/driver/1/abc-uuid_1711234567890.pdf" }
+              ]
+            },
+            "description": "Streams a document from Supabase Storage through the Next.js server. Allowed buckets: `VEHICLE_DOCUMENTS`, `DRIVER_DOCUMENTS`, `PA_DOCUMENTS`, `EMPLOYEE_DOCUMENTS`, `MAINTENANCE_ICONS`. Requires `{{auth_token}}`."
+          }
+        },
+        {
+          "name": "Upload Assistant Document via QR (RPC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",       "value": "{{anon_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/upload_assistant_document_from_qr",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "upload_assistant_document_from_qr"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_qr_token\": \"QR_TOKEN_FROM_BADGE\",\n  \"p_file_url\": \"[\\\"https://YOUR_PROJECT_REF.supabase.co/storage/v1/object/public/ROUTE_DOCUMENTS/assistants/1/dbs_1711234567890_0_abc.pdf\\\"]\",\n  \"p_doc_type\": \"DBS Certificate\",\n  \"p_route_session_id\": 5,\n  \"p_uploaded_by\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Public RPC — no auth required. Called after a PA scans their QR badge and uploads a file. Validates the QR token, inserts a `documents` record, and creates the appropriate PA link. From `lib/supabase/assistantDocuments.ts`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Calendar Notes",
+      "description": "Day-level notes on the compliance/operations calendar and view-tracking per user.\n\nMain tables: `calendar_day_notes`, `calendar_day_note_views`.\n\nAll endpoints require `{{auth_token}}`.",
+      "item": [
+        {
+          "name": "List Calendar Notes (date range)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_notes?note_date=gte.2026-03-01&note_date=lte.2026-03-31&select=id,note_date,note_text,created_by,updated_by,created_at,updated_at&order=note_date.asc,created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_notes"],
+              "query": [
+                { "key": "note_date", "value": "gte.2026-03-01" },
+                { "key": "note_date", "value": "lte.2026-03-31" },
+                { "key": "select",    "value": "id,note_date,note_text,created_by,updated_by,created_at,updated_at" },
+                { "key": "order",     "value": "note_date.asc,created_at.desc" }
+              ]
+            },
+            "description": "Returns all calendar notes within a date range. From `GET /api/calendar/notes`."
+          }
+        },
+        {
+          "name": "Create Calendar Note",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_notes",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_notes"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note_date\": \"2026-03-25\",\n  \"note_text\": \"School holidays begin – reduced route schedule\",\n  \"created_by\": 42,\n  \"updated_by\": 42\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Creates a new calendar note for a specific day. From `POST /api/calendar/notes`."
+          }
+        },
+        {
+          "name": "Update Calendar Note",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_notes?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_notes"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note_text\": \"School holidays begin – reduced route schedule. Updated by ops.\",\n  \"updated_by\": 42,\n  \"updated_at\": \"2026-03-24T10:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Updates the text of an existing calendar note. From `PATCH /api/calendar/notes`."
+          }
+        },
+        {
+          "name": "Delete Calendar Note by ID",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_notes?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_notes"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "description": "Deletes a specific note by ID. From `DELETE /api/calendar/notes`."
+          }
+        },
+        {
+          "name": "Delete All Notes for a Day",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_notes?note_date=eq.2026-03-25",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_notes"],
+              "query": [{ "key": "note_date", "value": "eq.2026-03-25" }]
+            },
+            "description": "Deletes all notes for a given date. From `DELETE /api/calendar/notes` when `noteDate` param is provided."
+          }
+        },
+        {
+          "name": "Get Note View Status for User (date range)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_note_views?user_id=eq.42&note_date=gte.2026-03-01&note_date=lte.2026-03-31&select=note_date",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_note_views"],
+              "query": [
+                { "key": "user_id",   "value": "eq.42" },
+                { "key": "note_date", "value": "gte.2026-03-01" },
+                { "key": "note_date", "value": "lte.2026-03-31" },
+                { "key": "select",    "value": "note_date" }
+              ]
+            },
+            "description": "Returns which dates in a range have been viewed by the current user. Used to show unread indicators on calendar days. From `GET /api/calendar/notes`."
+          }
+        },
+        {
+          "name": "Mark Notes as Seen (upsert)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "resolution=merge-duplicates,return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/calendar_day_note_views",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "calendar_day_note_views"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": 42,\n  \"note_date\": \"2026-03-24\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Upserts a view record for a user and date. Conflict key: `(user_id, note_date)`. From `POST /api/calendar/notes/seen`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Compliance Cases",
+      "description": "Compliance cases opened from expiry notifications, and the document-expiry tolerance configuration table.\n\nMain tables: `compliance_cases`, `document_expiry_tolerance`.\n\nAll endpoints require `{{auth_token}}`.",
+      "item": [
+        {
+          "name": "Get Compliance Case by Notification ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/compliance_cases?notification_id=eq.888&select=*&limit=1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "compliance_cases"],
+              "query": [
+                { "key": "notification_id", "value": "eq.888" },
+                { "key": "select",          "value": "*" },
+                { "key": "limit",           "value": "1" }
+              ]
+            },
+            "description": "Fetch any existing compliance case tied to a notification. Used in the Compliance Case page to detect duplicate cases before creating a new one. From `GET /api/compliance`."
+          }
+        },
+        {
+          "name": "Open Compliance Case",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/compliance_cases",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "compliance_cases"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notification_id\": 888,\n  \"subject_type\": \"driver\",\n  \"subject_id\": 1,\n  \"requirement_id\": \"abc-uuid\",\n  \"opened_by\": 42,\n  \"status\": \"open\",\n  \"notes\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Opens a new compliance case. Called from the compliance case creation page. From `POST /api/compliance`."
+          }
+        },
+        {
+          "name": "Update Compliance Case",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/compliance_cases?id=eq.1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "compliance_cases"],
+              "query": [{ "key": "id", "value": "eq.1" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\",\n  \"resolved_at\": \"2026-03-24T10:00:00.000Z\",\n  \"resolved_by\": 42,\n  \"notes\": \"Certificate renewed and uploaded.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Updates case status. Possible statuses: `open`, `in_progress`, `resolved`, `closed`. From `PATCH /api/compliance/[id]`."
+          }
+        },
+        {
+          "name": "List Compliance Cases",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/compliance_cases?select=*,notifications(id,title,notification_type)&status=eq.open&order=created_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "compliance_cases"],
+              "query": [
+                { "key": "select", "value": "*,notifications(id,title,notification_type)" },
+                { "key": "status", "value": "eq.open" },
+                { "key": "order",  "value": "created_at.desc" }
+              ]
+            },
+            "description": "Lists all open compliance cases with related notification info. From the compliance cases list page."
+          }
+        },
+        {
+          "name": "List Document Expiry Tolerances",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_expiry_tolerance?select=*&order=subject_type.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_expiry_tolerance"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "subject_type.asc" }
+              ]
+            },
+            "description": "Retrieves all expiry-tolerance configuration rows used by the compliance calendar to determine warning windows per subject type. From `complianceCalendar.ts`."
+          }
+        },
+        {
+          "name": "Get Tolerance for Subject & Requirement",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/document_expiry_tolerance?subject_type=eq.driver&requirement_id=eq.abc-uuid&select=tolerance_days&limit=1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "document_expiry_tolerance"],
+              "query": [
+                { "key": "subject_type",    "value": "eq.driver" },
+                { "key": "requirement_id",  "value": "eq.abc-uuid" },
+                { "key": "select",          "value": "tolerance_days" },
+                { "key": "limit",           "value": "1" }
+              ]
+            },
+            "description": "Gets the tolerance window in days for a specific subject type + requirement combination."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Samsara / Telematics",
+      "description": "Vehicle telematics data ingested from Samsara, unmatched-vehicle management, and the admin sync/mapping tools.\n\nMain tables: `vehicles_realtime`, `vehicle_locations`, `vehicle_telematics_latest`, `vehicle_telematics_history`, `route_points`, `samsara_vehicle_unmatched`, `samsara_sync_logs`, `samsara_mapping_audit_log`.\n\nNote: `vehicles_realtime` and `vehicle_locations` selects use the **service_role_key** (bypasses RLS). All others use `{{auth_token}}`.",
+      "item": [
+        {
+          "name": "List Realtime Vehicle Locations (service role)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{service_role_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_role_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles_realtime?select=vehicle_id,lat,lng,speed,heading,updated_at&order=updated_at.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles_realtime"],
+              "query": [
+                { "key": "select", "value": "vehicle_id,lat,lng,speed,heading,updated_at" },
+                { "key": "order",  "value": "updated_at.desc" }
+              ]
+            },
+            "description": "Real-time vehicle positions. SERVICE ROLE key required — this table is restricted in RLS. Used by LiveOperationsPanel and the map component."
+          }
+        },
+        {
+          "name": "Get Realtime Location for One Vehicle",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{service_role_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_role_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicles_realtime?vehicle_id=eq.1&select=*&limit=1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicles_realtime"],
+              "query": [
+                { "key": "vehicle_id", "value": "eq.1" },
+                { "key": "select",     "value": "*" },
+                { "key": "limit",      "value": "1" }
+              ]
+            },
+            "description": "Current position of a single vehicle. SERVICE ROLE key required."
+          }
+        },
+        {
+          "name": "List Vehicle Locations (service role)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{service_role_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_role_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_locations?select=*&order=received_at.desc&limit=100",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_locations"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "received_at.desc" },
+                { "key": "limit",  "value": "100" }
+              ]
+            },
+            "description": "Historical location feed. SERVICE ROLE key required."
+          }
+        },
+        {
+          "name": "Get Telematics Latest (by Samsara ID)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_telematics_latest?samsara_vehicle_id=eq.SV-123&select=*&limit=1",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_telematics_latest"],
+              "query": [
+                { "key": "samsara_vehicle_id", "value": "eq.SV-123" },
+                { "key": "select",             "value": "*" },
+                { "key": "limit",              "value": "1" }
+              ]
+            },
+            "description": "Latest telematics snapshot for a vehicle keyed by Samsara ID. From Samsara webhook ingestion flow."
+          }
+        },
+        {
+          "name": "Upsert Telematics Latest",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "resolution=merge-duplicates,return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_telematics_latest",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_telematics_latest"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"samsara_vehicle_id\": \"SV-123\",\n  \"lat\": 51.5074,\n  \"lng\": -0.1278,\n  \"speed_mph\": 30.5,\n  \"heading\": 180,\n  \"odometer_meters\": 150000,\n  \"fuel_percent\": 72,\n  \"engine_state\": \"On\",\n  \"updated_at\": \"2026-03-24T10:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Upserts the realtime snapshot. Conflict key: `samsara_vehicle_id`. From Samsara webhook handler."
+          }
+        },
+        {
+          "name": "Insert Telematics History",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/vehicle_telematics_history",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "vehicle_telematics_history"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"samsara_vehicle_id\": \"SV-123\",\n  \"lat\": 51.5074,\n  \"lng\": -0.1278,\n  \"speed_mph\": 30.5,\n  \"heading\": 180,\n  \"odometer_meters\": 150000,\n  \"fuel_percent\": 72,\n  \"engine_state\": \"On\",\n  \"recorded_at\": \"2026-03-24T10:00:00.000Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Appends a historical telematics row. Written by the Samsara webhook alongside the latest upsert."
+          }
+        },
+        {
+          "name": "Get Route Points for Session",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/route_points?route_session_id=eq.5&select=*&order=sequence.asc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "route_points"],
+              "query": [
+                { "key": "route_session_id", "value": "eq.5" },
+                { "key": "select",           "value": "*" },
+                { "key": "order",            "value": "sequence.asc" }
+              ]
+            },
+            "description": "Ordered stop sequence for an active route session. Used by the live map component."
+          }
+        },
+        {
+          "name": "List Unmatched Samsara Vehicles",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/samsara_vehicle_unmatched?select=*&is_resolved=eq.false&order=first_seen.desc",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "samsara_vehicle_unmatched"],
+              "query": [
+                { "key": "select",      "value": "*" },
+                { "key": "is_resolved", "value": "eq.false" },
+                { "key": "order",       "value": "first_seen.desc" }
+              ]
+            },
+            "description": "Samsara vehicles whose `samsara_vehicle_id` has no match in the fleet. Shown in the admin Samsara mapping UI. From `GET /api/admin/samsara/mapping/unmatched`."
+          }
+        },
+        {
+          "name": "Upsert Unmatched Samsara Vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "resolution=merge-duplicates,return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/samsara_vehicle_unmatched",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "samsara_vehicle_unmatched"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"samsara_vehicle_id\": \"SV-999\",\n  \"samsara_name\": \"Samsara Vehicle 999\",\n  \"last_seen\": \"2026-03-24T10:00:00.000Z\",\n  \"first_seen\": \"2026-03-24T10:00:00.000Z\",\n  \"is_resolved\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Upserts an unmatched vehicle record. Conflict key: `samsara_vehicle_id`."
+          }
+        },
+        {
+          "name": "Resolve Samsara Vehicle Mapping (Next.js API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/admin/samsara/mapping/resolve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "samsara", "mapping", "resolve"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"samsara_vehicle_id\": \"SV-999\",\n  \"fleet_vehicle_id\": 12\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Matches an unmatched Samsara vehicle to a fleet vehicle. Updates `vehicles.samsara_vehicle_id`, marks the row resolved in `samsara_vehicle_unmatched`, and inserts an audit entry in `samsara_mapping_audit_log`. From `POST /api/admin/samsara/mapping/resolve`."
+          }
+        },
+        {
+          "name": "Insert Samsara Sync Log",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Prefer",        "value": "return=representation" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/samsara_sync_logs",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "samsara_sync_logs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sync_type\": \"vehicle_locations\",\n  \"status\": \"started\",\n  \"started_at\": \"2026-03-24T10:00:00.000Z\",\n  \"vehicles_processed\": 0,\n  \"errors\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Starts a sync log entry. After the sync completes, PATCH the row with `status`, `finished_at`, `vehicles_processed`, and any `errors`."
+          }
+        },
+        {
+          "name": "Dev Seed Samsara Data (Next.js internal API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/internal/samsara/dev-seed",
+              "host": ["{{base_url}}"],
+              "path": ["api", "internal", "samsara", "dev-seed"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Development-only endpoint that seeds fake vehicle telemetry data into `vehicle_telematics_latest` and `vehicles_realtime`. From `POST /api/internal/samsara/dev-seed`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Storage",
+      "description": "Supabase Storage bucket operations for fleet documents. Buckets: `ROUTE_DOCUMENTS`, `DRIVER_DOCUMENTS`, `PA_DOCUMENTS`, `VEHICLE_DOCUMENTS`, `EMPLOYEE_DOCUMENTS`, `MAINTENANCE_ICONS`.\n\nFile uploads are multipart `POST` to the Storage Upload API. Downloads are proxied through the Next.js `/api/documents/view` endpoint (see Documents folder).\n\nAll storage calls require the `{{auth_token}}` JWT.",
+      "item": [
+        {
+          "name": "Upload to DRIVER_DOCUMENTS bucket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/DRIVER_DOCUMENTS/subject-documents/driver/1/abc-uuid_1711234567890.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "DRIVER_DOCUMENTS", "subject-documents", "driver", "1", "abc-uuid_1711234567890.pdf"]
+            },
+            "body": {
+              "mode": "file",
+              "file": { "src": "/path/to/local/certificate.pdf" }
+            },
+            "description": "Uploads a certificate PDF for a driver. Path pattern: `subject-documents/driver/{driver_employee_id}/{requirement_id}_{timestamp}_{index}_{randomhex}.{ext}`. Returns `Key` (storage path). Browser client (anon key)."
+          }
+        },
+        {
+          "name": "Upload to PA_DOCUMENTS bucket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/PA_DOCUMENTS/subject-documents/pa/1/abc-uuid_1711234567890.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "PA_DOCUMENTS", "subject-documents", "pa", "1", "abc-uuid_1711234567890.pdf"]
+            },
+            "body": {
+              "mode": "file",
+              "file": { "src": "/path/to/local/certificate.pdf" }
+            },
+            "description": "Uploads a certificate file for a passenger assistant. Same path pattern as driver bucket."
+          }
+        },
+        {
+          "name": "Upload to VEHICLE_DOCUMENTS bucket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/VEHICLE_DOCUMENTS/subject-documents/vehicle/1/abc-uuid_1711234567890.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "VEHICLE_DOCUMENTS", "subject-documents", "vehicle", "1", "abc-uuid_1711234567890.pdf"]
+            },
+            "body": {
+              "mode": "file",
+              "file": { "src": "/path/to/local/certificate.pdf" }
+            },
+            "description": "Uploads a certificate file for a vehicle (e.g. MOT, insurance)."
+          }
+        },
+        {
+          "name": "Upload to EMPLOYEE_DOCUMENTS bucket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/EMPLOYEE_DOCUMENTS/subject-documents/employee/1/abc-uuid_1711234567890.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "EMPLOYEE_DOCUMENTS", "subject-documents", "employee", "1", "abc-uuid_1711234567890.pdf"]
+            },
+            "body": {
+              "mode": "file",
+              "file": { "src": "/path/to/local/certificate.pdf" }
+            },
+            "description": "Uploads a certificate file for an office employee."
+          }
+        },
+        {
+          "name": "Upload to ROUTE_DOCUMENTS bucket (QR assistant upload)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/ROUTE_DOCUMENTS/assistants/1/dbs_1711234567890_0_abc.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "ROUTE_DOCUMENTS", "assistants", "1", "dbs_1711234567890_0_abc.pdf"]
+            },
+            "body": {
+              "mode": "file",
+              "file": { "src": "/path/to/local/dbs.pdf" }
+            },
+            "description": "Public upload from the PA QR scan page — no auth token, only `apikey`. Path pattern: `assistants/{pa_employee_id}/{docTypeSlug}_{timestamp}_{index}_{randomhex}.{ext}`. From `lib/supabase/assistantDocuments.ts`."
+          }
+        },
+        {
+          "name": "Upload to MAINTENANCE_ICONS bucket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/MAINTENANCE_ICONS/icons/abc-uuid.svg",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "MAINTENANCE_ICONS", "icons", "abc-uuid.svg"]
+            },
+            "body": {
+              "mode": "file",
+              "file": { "src": "/path/to/local/icon.svg" }
+            },
+            "description": "Uploads a custom maintenance type icon. Anon key only (public bucket)."
+          }
+        },
+        {
+          "name": "Get Public URL for DRIVER_DOCUMENTS file",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/public/DRIVER_DOCUMENTS/subject-documents/driver/1/abc-uuid_1711234567890.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "public", "DRIVER_DOCUMENTS", "subject-documents", "driver", "1", "abc-uuid_1711234567890.pdf"]
+            },
+            "description": "Retrieves the public URL for a driver document. This matches what `getPublicUrl(path)` returns from `storage.from('DRIVER_DOCUMENTS')`. For non-public buckets use the Next.js `/api/documents/view` proxy instead."
+          }
+        },
+        {
+          "name": "Delete File from DRIVER_DOCUMENTS bucket",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/storage/v1/object/DRIVER_DOCUMENTS",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "v1", "object", "DRIVER_DOCUMENTS"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prefixes\": [\"subject-documents/driver/1/abc-uuid_1711234567890.pdf\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Removes a list of files from the bucket. Called during cleanup operations (e.g., when a subject document is deleted)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "RPC Functions",
+      "description": "PostgreSQL RPC calls (`/rest/v1/rpc/...`) not already covered in other folders.\n\nSome RPCs use the **service_role_key** as noted; all others use `{{auth_token}}`.",
+      "item": [
+        {
+          "name": "update_vehicle_seating_plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/update_vehicle_seating_plan",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "update_vehicle_seating_plan"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_vehicle_id\": 1,\n  \"p_seating_plan\": {\"rows\": 3, \"seats_per_row\": 4, \"seats\": []}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Saves the seating plan layout for a vehicle. From `InteractiveSeatingChart.tsx` via `PUT /api/vehicles/[id]/seating-plan`."
+          }
+        },
+        {
+          "name": "find_substitution_vehicles",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/find_substitution_vehicles",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "find_substitution_vehicles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_required_capacity\": 8,\n  \"p_exclude_vehicle_id\": 1,\n  \"p_route_date\": \"2026-03-25\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Returns available spare vehicles matching capacity and route date constraints. From `ReplacementVehicleFinder.tsx` and breakdown replacement flow."
+          }
+        },
+        {
+          "name": "get_route_session_seating",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/get_route_session_seating",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "get_route_session_seating"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_route_session_id\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Returns the current seat assignments for a route session including passenger details and seat positions. From `InteractiveSeatingChart.tsx`."
+          }
+        },
+        {
+          "name": "assign_passenger_to_seat",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/assign_passenger_to_seat",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "assign_passenger_to_seat"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_route_session_id\": 5,\n  \"p_passenger_id\": 20,\n  \"p_seat_row\": 2,\n  \"p_seat_number\": 3\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Assigns a passenger to a specific seat in a route session. Enforces uniqueness: clears any prior assignment for the same session+passenger. From `InteractiveSeatingChart.tsx`."
+          }
+        },
+        {
+          "name": "unassign_passenger_seat",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/unassign_passenger_seat",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "unassign_passenger_seat"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_route_session_id\": 5,\n  \"p_passenger_id\": 20\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Removes a passenger's seat assignment from a route session. From `InteractiveSeatingChart.tsx`."
+          }
+        },
+        {
+          "name": "create_certificate_notifications",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/create_certificate_notifications",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "create_certificate_notifications"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Scans all subject documents, identifies those expiring within the tolerance window, and creates notification rows. Called from the compliance calendar scheduler and the notification check API."
+          }
+        },
+        {
+          "name": "export_tas5_rows (service role)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{service_role_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_role_key}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/export_tas5_rows",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "export_tas5_rows"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_vehicle_id\": 1,\n  \"p_start_date\": \"2026-03-01\",\n  \"p_end_date\": \"2026-03-31\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Exports TAS5 (driver timesheet) rows for an Excel export. SERVICE ROLE key required — RLS restricts this function. From `POST /api/routes/export-tas5`."
+          }
+        },
+        {
+          "name": "create_tardiness_notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/create_tardiness_notification",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "create_tardiness_notification"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_tardiness_id\": 10,\n  \"p_driver_employee_id\": 1,\n  \"p_route_id\": 3,\n  \"p_mins_late\": 15,\n  \"p_created_by\": 42\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Creates a tardiness notification linked to a tardiness record. From `POST /api/tardiness/report`."
+          }
+        },
+        {
+          "name": "search_notification_recipients",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/search_notification_recipients",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "search_notification_recipients"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p_search\": \"john\",\n  \"p_limit\": 20,\n  \"p_offset\": 0\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Full-text search over employees, drivers and PAs to find notification recipients. From `GET /api/notifications/get-recipients`."
+          }
+        },
+        {
+          "name": "get_my_permissions",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/get_my_permissions",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "get_my_permissions"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Returns the permission set for the currently authenticated user. Used by `usePermissions` hook and `lib/permissions.ts` to gate UI features."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Edge Functions",
+      "description": "Supabase Edge Functions deployed under `/functions/v1/`.\n\nAll calls require `Authorization: Bearer {{auth_token}}` and the project-scoped `apikey` header.\n\nEdge Functions run as Deno TypeScript on Supabase's infrastructure. They use the **service role key internally** to bypass RLS for writes, but they verify the caller's JWT themselves (step 1 of each function). This means business logic (ownership checks, time gates, duplicate prevention) is enforced in code — not in database policies.\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED",
+      "item": [
+        {
+          "name": "Cancel Trip (parent cancels child's trip)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/functions/v1/cancel-trip",
+              "host": ["{{base_url}}"],
+              "path": ["functions", "v1", "cancel-trip"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passenger_id\": 17,\n  \"session_type\": \"AM\",\n  \"trip_date\": \"2026-04-03\",\n  \"reason\": \"Child is unwell\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Allows a registered parent to cancel their child's upcoming trip.\n\n**Auth:** Bearer JWT of the parent (from Supabase Auth). The function verifies the token internally using the service role key.\n\n### Request body\n| Field | Type | Required | Validation |\n|---|---|---|---|\n| `passenger_id` | number | ✅ | Must be a number |\n| `session_type` | string | ✅ | Must be `\"AM\"` or `\"PM\"` |\n| `trip_date` | string | ✅ | Format: `YYYY-MM-DD` |\n| `reason` | string | ❌ | Optional free text |\n\n### Business logic (in code — NOT in RLS)\n1. JWT verified → parent identity established\n2. `parent_contacts` table queried by `user_id = auth.uid()` — returns 401 if not a registered parent\n3. `passenger_parent_contacts` junction checked — returns 403 if passenger not linked to this parent (\"Not your child\")\n4. `passengers` + `routes` fetched to get departure time\n5. **Time gate:** if `Date.now() >= route departure time`, returns 422 \"Cancellation window has passed\"\n6. `route_sessions` checked — if session exists and `started_at` is set, returns 422 \"Trip already in progress\"\n7. **Duplicate check:** if `parent_absence_reports` already has a row for this passenger+session, returns 409 \"Already cancelled\"\n8. INSERT into `parent_absence_reports` (status: `new`)\n9. INSERT into `notifications` (`notification_type: trip_cancellation`, `recipient_user_id: parent's auth UUID`)\n\n### Expected responses\n| Status | Body | Cause |\n|---|---|---|\n| 201 | `{ \"absence_report_id\": 123 }` | Success |\n| 400 | `{ \"error\": \"Missing or invalid fields...\" }` | Bad request body |\n| 401 | `{ \"error\": \"Not authenticated\" }` | Invalid/missing JWT |\n| 401 | `{ \"error\": \"Not a registered parent\" }` | JWT valid but user not in `parent_contacts` |\n| 403 | `{ \"error\": \"Not your child\" }` | passenger_id not linked to this parent |\n| 404 | `{ \"error\": \"Passenger not found\" }` | passenger_id doesn't exist |\n| 409 | `{ \"error\": \"Already cancelled for this trip\" }` | Duplicate cancellation |\n| 422 | `{ \"error\": \"Cancellation window has passed. Trip starts at HH:MM\" }` | Too late to cancel |\n| 422 | `{ \"error\": \"Trip already in progress\" }` | Session started |\n| 422 | `{ \"error\": \"Passenger has no assigned route\" }` | Route not set up |\n\n### Notification visibility after this call\nThe inserted `trip_cancellation` notification is visible to:\n- **The parent** via `notifications_select_own` RLS policy (`recipient_user_id = auth.uid()`)\n- **Admins** via `rbac_notifications_select` RLS policy (requires `passengers.read` or `routes.read` permission)\n\n> ✅ Reviewed by Mahmood — April 2026 — Confirmed correct, deployed and tested end-to-end"
+          }
+        },
+        {
+          "name": "Restore Trip (parent restores cancelled trip)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/functions/v1/restore-trip",
+              "host": ["{{base_url}}"],
+              "path": ["functions", "v1", "restore-trip"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passenger_id\": 17,\n  \"session_type\": \"AM\",\n  \"trip_date\": \"2026-04-03\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Allows a parent to undo a previously submitted trip cancellation, restoring the child's place on the route.\n\n**Auth:** Bearer JWT of the parent. The function verifies the token internally.\n\n### Request body\n| Field | Type | Required | Validation |\n|---|---|---|---|\n| `passenger_id` | number | ✅ | Must be a number |\n| `session_type` | string | ✅ | `\"AM\"` or `\"PM\"` |\n| `trip_date` | string | ✅ | `YYYY-MM-DD` |\n\n### Business logic (11 steps, in code — NOT in RLS)\n1. **JWT verified** → parent identity established\n2. **Body validated** → 400 if any field missing or wrong type\n3. **Parent lookup** — `parent_contacts` queried by `user_id = auth.uid()` → 401 if not a registered parent\n4. **Ownership check** — `passenger_parent_contacts` junction checked → 403 \"Not your child\"\n5. **Passenger + route fetched** — to get departure time for the time gate\n6. **Time gate** — if `Date.now() >= route departure time` → 422 \"Restore window has passed. Trip starts at HH:MM\"\n7. **Route session lookup** — checks if the session exists and has `started_at` set → 422 \"Trip already in progress\"\n8. **Find active absence report** — searches `parent_absence_reports` WHERE `passenger_id` matches AND `route_session_id` matches (or IS NULL if no session exists yet) AND `status IN ('new', 'acknowledged')`, ordered by `created_at DESC` → 404 \"No active cancellation found for this trip\" if nothing matches\n9. **UPDATE absence report** — sets `status = 'cancelled'` (marks the absence as voided; the child is back on the route)\n10. **INSERT notification** — `notification_type: trip_restored`, `recipient_user_id: parent's auth UUID`\n11. **Return 200** with `{ absence_report_id }`\n\n### Expected responses\n| Status | Body | Cause |\n|---|---|---|\n| 200 | `{ \"absence_report_id\": 123 }` | Success — trip restored |\n| 400 | `{ \"error\": \"Missing or invalid fields...\" }` | Bad request body |\n| 401 | `{ \"error\": \"Not authenticated\" }` | Invalid/missing JWT |\n| 401 | `{ \"error\": \"Not a registered parent\" }` | JWT valid but not in `parent_contacts` |\n| 403 | `{ \"error\": \"Not your child\" }` | passenger_id not linked to this parent |\n| 404 | `{ \"error\": \"Passenger not found\" }` | passenger_id doesn't exist |\n| 404 | `{ \"error\": \"No active cancellation found for this trip\" }` | No `parent_absence_reports` row with matching passenger+session and status `new`/`acknowledged` |\n| 422 | `{ \"error\": \"Restore window has passed. Trip starts at HH:MM\" }` | Too late — departure time already passed |\n| 422 | `{ \"error\": \"Trip already in progress\" }` | `route_sessions.started_at` is set |\n| 422 | `{ \"error\": \"Passenger has no assigned route\" }` | Route not configured |\n| 500 | `{ \"error\": \"Failed to restore trip\" }` | DB update error |\n\n### Notification visibility after this call\n- **Parent** sees the `trip_restored` row via `notifications_select_own` (`recipient_user_id = auth.uid()`)\n- **Admins** see it via `rbac_notifications_select`\n\n### Note on absence report status values\n`parent_absence_reports.status` constraint: `('new', 'acknowledged', 'resolved', 'cancelled')`\n- `new` / `acknowledged` = active cancellation, can be restored\n- `cancelled` = voided by parent via this endpoint\n- `resolved` = closed by staff — **cannot be restored**\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED"
+          }
+        },
+        {
+          "name": "Send Push Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/functions/v1/sendNotification",
+              "host": ["{{base_url}}"],
+              "path": ["functions", "v1", "sendNotification"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"audienceType\": \"user\",\n  \"title\": \"Route Tardiness Alert\",\n  \"body\": \"Driver John Smith was 15 minutes late on Route 12A.\",\n  \"deepLink\": \"/dashboard/notifications\",\n  \"metadata\": {\n    \"notification_type\": \"driver_tardiness\",\n    \"notification_id\": 888\n  },\n  \"targetUserId\": \"{{user_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Sends a Firebase Cloud Messaging push notification. `audienceType` can be `user` (requires `targetUserId`), `role`, or `all`. The Edge Function reads FCM tokens from `employee_fcm_tokens` in Supabase and dispatches via the Firebase Admin SDK. From `lib/pushApi.ts` and `firebase/functions/`."
+          }
+        }
+      ]
+    }
+  ]
+}
