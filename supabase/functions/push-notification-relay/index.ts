@@ -207,6 +207,8 @@ Deno.serve(async (req: Request) => {
       title:                  message.title,
       body:                   message.body,
       supabaseNotificationId: String(row.id),
+      notification_type:      row.notification_type,
+      details:                row.details ?? {},
       data:                   message.data,
     }),
   })

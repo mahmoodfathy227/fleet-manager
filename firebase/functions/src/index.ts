@@ -409,7 +409,7 @@ export const notifyInternal = onRequest(
     }
 
     try {
-      const { userId, title, body, supabaseNotificationId, data } = req.body ?? {};
+      const { userId, title, body, supabaseNotificationId, notification_type, details, data } = req.body ?? {};
 
       if (!userId || typeof userId !== "string") {
         res.status(400).json({ error: "userId is required" });
@@ -431,14 +431,18 @@ export const notifyInternal = onRequest(
           ? `supabase_${supabaseNotificationId}`
           : admin.firestore().collection("notifications").doc().id;
 
-      // Write notification content doc (readable by myInbox)
+      // Write notification doc — mirrors Supabase structure so Flutter has
+      // the same shape on both sides: notification_type + details + rendered title/body
       await admin.firestore().collection("notifications").doc(nid).set({
+        supabase_id:       supabaseNotificationId ?? null,
+        notification_type: notification_type ?? null,
         title,
         body,
-        data: data ?? {},
-        createdAt: nowTs(),
-        audienceType: "single_user",
-        routeId: null,
+        details:           details ?? {},
+        data:              data ?? {},
+        createdAt:         nowTs(),
+        audienceType:      "single_user",
+        routeId:           null,
       });
 
       // Write inbox entry so the user sees it in myInbox
