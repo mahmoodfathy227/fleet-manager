@@ -13,6 +13,31 @@ Before writing, editing, or deleting **any** line of code in this codebase:
 
 ---
 
+## Pre-Commit Checklist
+
+**Before committing and pushing any code change, you MUST run a production build and verify it succeeds with zero errors.**
+
+```bash
+npm run build
+```
+
+- If the build fails, fix all errors before committing. **Never commit broken code.**
+- A missing import, a wrong type, or a deleted export will cause a 5xx error on the live dashboard for all users — the same as a runtime crash.
+- TypeScript errors that are suppressed in dev mode are **fatal** in `next build`. Do not assume `tsc` passing locally means the build will pass.
+- After build succeeds, stage and commit. Only then push.
+
+> A broken import was pushed previously and caused a full dashboard 5xx outage. This rule exists to prevent that.
+
+### Supabase MCP — Read-Only
+
+The Supabase MCP tool is connected in **read-only mode**. This means:
+
+- `mcp_supabase_execute_sql` can only run `SELECT` queries — do **not** attempt `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, or any other write operation through it.
+- All schema changes (migrations, function definitions, RLS policies, cron jobs) must be written as a `.sql` migration file in `supabase/migrations/` and applied **manually** by the developer via the Supabase dashboard SQL editor or the Supabase CLI.
+- Always save the SQL to a migration file first, then instruct the developer to run it — never try to apply it directly via MCP.
+
+---
+
 ## Date Formatting
 
 All dates displayed to users **must** use the format `21 March 2025` (day-month-year, full month name, no ordinal suffix).
@@ -67,6 +92,33 @@ Four notification-related tables exist. Three are effectively dead:
 | `push_notification_recipients` | ❌ Dead — 0 rows | Same as above. |
 
 **Rule:** All new notification types MUST insert into `notifications` only. Use the `details JSONB` column for type-specific payload. Do NOT stuff values into compliance-specific columns (`certificate_type`, `certificate_name`, `expiry_date`, `days_until_expiry`, `entity_type`, `entity_id`).
+
+### Active notification types (April 2026)
+
+| `notification_type` | Inserted by | `recipient_user_id` | Visible to |
+|---|---|---|---|
+| `certificate_expiry` | `create_certificate_notifications()` RPC (legacy) | NULL | Admins (RBAC) via old compliance columns |
+| `vehicle_breakdown` | `report_vehicle_breakdown` RPC | NULL | Admins (RBAC) |
+| `driver_tardiness` | `/api/tardiness` Next.js route | NULL | Admins (RBAC) |
+| `trip_cancellation` | `cancel-trip` Edge Function | Parent's auth UUID | Parent + Admins |
+| `trip_restored` | `restore-trip` Edge Function | Parent's auth UUID | Parent + Admins |
+| `cert_expiry_reminder` | `create_cert_expiry_reminders()` RPC (migration 173) | Employee auth UUID (driver/PA) or NULL (vehicle) | Employee sees own; Admins see all via RBAC |
+
+**`cert_expiry_reminder` details JSONB shape:**
+```json
+{
+  "entity_type": "vehicle|driver|assistant|employee",
+  "entity_id": 42,
+  "cert_type": "mot_date",
+  "cert_name": "MOT",
+  "expiry_date": "2026-04-10",
+  "severity": "expiring_soon|urgent|expired",
+  "display_name": "Bus BUS-01 — MOT",
+  "subject_document_id": "uuid-or-omitted"
+}
+```
+Severity rules: `expiring_soon` = 8–30 days (weekly reminder), `urgent` = 1–7 days (daily), `expired` = past expiry up to 90 days (daily).
+`days_until_expiry` is NOT stored — derive at render time from `expiry_date`.
 
 ### Parent Data Duplication (reviewed 31 March 2026)
 

@@ -146,7 +146,7 @@
     },
     {
       "name": "Notifications",
-      "description": "Manage system notifications. Most endpoints require `{{auth_token}}`.\n\nKey table: `notifications`.\n\n### Notification types\n| Type | Inserted by | Who sees it |\n|---|---|---|\n| `certificate_expiry` | `create_certificate_notifications` RPC | Admins (RBAC) |\n| `vehicle_breakdown` | `report_vehicle_breakdown` RPC | Admins (RBAC) |\n| `driver_tardiness` | `/api/tardiness` Next.js route | Admins (RBAC) |\n| `trip_cancellation` | `cancel-trip` Edge Function | Parent who cancelled + Admins |\n| `trip_restored` | `restore-trip` Edge Function (planned) | Parent + Admins |\n\n### RLS policies on `notifications`\n| Policy | Role | Rule | Plain English |\n|---|---|---|---|\n| `notifications_select_own` | authenticated | `recipient_user_id = auth.uid()` | User sees only rows addressed to them (parents) |\n| `rbac_notifications_select` | authenticated | `auth_has_any_permission([...])` | Dashboard users with `compliance/routes/passengers` permissions see ALL rows |\n| `Allow anon read notifications by token` | anon | `email_token IS NOT NULL` | Unauthenticated email-link requests see token-bearing rows |\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED",
+      "description": "Manage system notifications. Most endpoints require `{{auth_token}}`.\n\nKey table: `notifications`.\n\n### Notification types\n| Type | Inserted by | Who sees it |\n|---|---|---|\n| `certificate_expiry` | `create_certificate_notifications` RPC | Admins (RBAC) |\n| `vehicle_breakdown` | `report_vehicle_breakdown` RPC | Admins (RBAC) |\n| `driver_tardiness` | `/api/tardiness` Next.js route | Admins (RBAC) |\n| `trip_cancellation` | `cancel-trip` Edge Function | Parent who cancelled + Admins |\n| `trip_restored` | `restore-trip` Edge Function (planned) | Parent + Admins |\n| `cert_expiry_reminder` | `create_cert_expiry_reminders` RPC (migration 173, pg_cron daily) | Vehicle certs → Admins only; Driver/PA certs → employee + Admins |\n\n### RLS policies on `notifications`\n| Policy | Role | Rule | Plain English |\n|---|---|---|---|\n| `notifications_select_own` | authenticated | `recipient_user_id = auth.uid()` | User sees only rows addressed to them (parents) |\n| `rbac_notifications_select` | authenticated | `auth_has_any_permission([...])` | Dashboard users with `compliance/routes/passengers` permissions see ALL rows |\n| `Allow anon read notifications by token` | anon | `email_token IS NOT NULL` | Unauthenticated email-link requests see token-bearing rows |\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED",
       "item": [
         {
           "name": "Get Notification by ID",
@@ -3085,6 +3085,28 @@
               "options": { "raw": { "language": "json" } }
             },
             "description": "Scans all subject documents, identifies those expiring within the tolerance window, and creates notification rows. Called from the compliance calendar scheduler and the notification check API."
+          }
+        },
+        {
+          "name": "create_cert_expiry_reminders",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey",        "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/rpc/create_cert_expiry_reminders",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "rpc", "create_cert_expiry_reminders"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Daily certificate expiry reminder system. Separate from the legacy `certificate_expiry` / `create_certificate_notifications` — does NOT touch those rows.\n\n**Scheduled by:** `pg_cron` job `cert-expiry-reminders` at `0 0 * * *` (midnight UTC). Can also be triggered manually from the Supabase SQL Editor: `SELECT create_cert_expiry_reminders();`\n\n### What it scans\n| Source | Entity type | Certificates covered |\n|---|---|---|\n| `vehicles` hardcoded columns | `vehicle` | registration, plate, insurance, MOT, tax, LOLER, first aid kit, fire extinguisher, PSV PMI |\n| `drivers` hardcoded columns | `driver` | TAS badge, taxi badge, DBS, first aid certificate, driving licence |\n| `passenger_assistants` hardcoded columns | `assistant` | TAS badge, DBS |\n| `subject_documents` (dynamic) | any | All docs with `requires_expiry = TRUE` — automatically covers future document types |\n\n### Severity & cadence\n| `severity` | Condition | Reminder frequency |\n|---|---|---|\n| `expiring_soon` | 8–30 days remaining | Once per week (skip if last reminder < 7 days ago) |\n| `urgent` | 1–7 days remaining | Once per day (skip if last reminder < 24 h ago) |\n| `expired` | Past expiry, up to 90 days | Once per day |\n\n### `details` JSONB shape\n```json\n{\n  \"entity_type\": \"vehicle|driver|assistant|employee\",\n  \"entity_id\": 42,\n  \"cert_type\": \"mot_date\",\n  \"cert_name\": \"MOT\",\n  \"expiry_date\": \"2026-04-10\",\n  \"severity\": \"urgent\",\n  \"display_name\": \"Bus BUS-01 — MOT\",\n  \"subject_document_id\": \"uuid — only present for subject_documents rows\"\n}\n```\n`days_until_expiry` is **not stored** — compute at render time from `expiry_date`.\n\n### Recipient targeting\n- **Vehicle certs:** `recipient_user_id = NULL` — admin-only (visible via `rbac_notifications_select`)\n- **Driver / PA / employee certs:** `recipient_user_id = employees.user_id` — the staff member sees their own cert reminder via `notifications_select_own`\n\n### Dedup key\n- Hardcoded columns: `(entity_type, entity_id, cert_type)` within cadence window\n- Subject documents: `subject_document_id` within cadence window\n\n> ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED"
           }
         },
         {
