@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
         .upsert(
           {
             id: samsaraVehicleId,
+            vehicle_db_id: vehicle.id,
             name: vehicle.vehicle_identifier || vehicle.registration || `Vehicle ${vehicle.id}`,
             latitude: lat,
             longitude: lng,
