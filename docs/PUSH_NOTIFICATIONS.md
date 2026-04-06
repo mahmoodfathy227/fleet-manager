@@ -1,6 +1,8 @@
-# Push Notifications Module
+# Push Notifications Module — Admin Web Dashboard
 
-This module provides push notifications using **Supabase Auth + RBAC** for permissions and **Firebase (FCM + Firestore)** for delivery and inbox storage.
+> 📱 **Mobile / Flutter developer?** You do not need this file. Read [`PUSH_NOTIFICATION_RELAY.md`](./PUSH_NOTIFICATION_RELAY.md) instead — it covers the automatic relay pipeline, all notification types, Firestore structure, FCM payloads, and Flutter integration.
+
+This document covers the **admin-initiated push notification system** used by the web dashboard. It uses **Supabase Auth + RBAC** for permissions and **Firebase (FCM + Firestore)** for delivery and inbox storage.
 
 **Security**: Clients must NOT access Firestore directly. All Firestore reads/writes happen only via Firebase Cloud Functions (Admin SDK).
 
@@ -68,10 +70,10 @@ firebase deploy --only functions
 Add to `.env.local`:
 
 ```
-NEXT_PUBLIC_FIREBASE_FUNCTIONS_URL=https://europe-west1-YOUR_PROJECT.cloudfunctions.net
+NEXT_PUBLIC_FIREBASE_FUNCTIONS_URL=https://us-central1-county-cars-af6d1.cloudfunctions.net
 ```
 
-Replace `YOUR_PROJECT` with your Firebase project ID. The URL format may vary; check the Firebase Console > Functions for the exact URL.
+The Firebase project is `county-cars-af6d1`, region `us-central1`.
 
 ### 5. Firestore Indexes (if needed)
 
@@ -92,21 +94,27 @@ users/{supabaseUserId}/devices/{deviceId}
   platform: 'android'|'ios'|'web'
   updatedAt: timestamp
 
-users/{supabaseUserId}/inbox/{notificationId}
-  notificationId: string
-  createdAt: timestamp
-  readAt: timestamp|null
+users/{supabaseUserId}/inbox/supabase_{id}
+  supabase_id:        string
+  notification_type:  string
+  title:              string
+  body:               string
+  details:            map        (mirrors Supabase notifications.details JSONB)
+  data:               map        (deep-link keys, e.g. route_session_id)
+  createdAt:          timestamp
+  readAt:             timestamp | null
 
-notifications/{notificationId}
-  title: string
-  body: string
-  deepLink: string|null
-  metadata: map|null
-  createdAt: timestamp
-  createdBy: string (supabase uid)
-  audienceType: 'single_user'|'route_parents'|'route_crew'
-  routeId: number|null
+notifications/supabase_{id}
+  supabase_id:        string
+  notification_type:  string
+  title:              string
+  body:               string
+  details:            map
+  data:               map
+  createdAt:          timestamp
 ```
+
+> ⚠️ The automatic relay pipeline (triggered by DB INSERT) writes this structure. See [`PUSH_NOTIFICATION_RELAY.md`](./PUSH_NOTIFICATION_RELAY.md) for the full schema and notification type reference.
 
 ---
 

@@ -103,6 +103,17 @@ Four notification-related tables exist. Three are effectively dead:
 | `trip_cancellation` | `cancel-trip` Edge Function | Parent's auth UUID | Parent + Admins |
 | `trip_restored` | `restore-trip` Edge Function | Parent's auth UUID | Parent + Admins |
 | `cert_expiry_reminder` | `create_cert_expiry_reminders()` RPC (migration 173) | Employee auth UUID (driver/PA) or NULL (vehicle) | Employee sees own; Admins see all via RBAC |
+| `driver_at_stop` | `trg_notify_parent_on_stop_event` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `child_picked_up` | `trg_notify_parent_on_stop_event` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `child_dropped_off` | `trg_notify_parent_on_stop_event` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `child_no_show` | `trg_notify_parent_on_stop_event` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `trip_started` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `trip_completed` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `child_not_on_trip` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
+
+> ⚠️ **Push notification relay rule:** Whenever a new `notification_type` is added that has a non-null `recipient_user_id`, you MUST add a corresponding `case` to the `buildMessage()` function in `supabase/functions/push-notification-relay/index.ts`. Without this, the push will be silently skipped (`default: return null`). After editing, redeploy: `supabase functions deploy push-notification-relay --no-verify-jwt --project-ref ilpfknjpfmgvzjafqtls`
+
+> 📄 **Full relay pipeline documentation** (architecture, Firestore schema, FCM payload, Flutter integration, deployment commands): [`docs/PUSH_NOTIFICATION_RELAY.md`](../docs/PUSH_NOTIFICATION_RELAY.md)
 
 **`cert_expiry_reminder` details JSONB shape:**
 ```json
