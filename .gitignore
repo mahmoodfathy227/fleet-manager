@@ -38,3 +38,8 @@ next-env.d.ts
 # generated output files
 /output/
 
+# Firebase service account credentials — NEVER commit these
+firebase/functions/service-account.json
+*firebase-adminsdk*.json
+firebase/functions/.env.*
+

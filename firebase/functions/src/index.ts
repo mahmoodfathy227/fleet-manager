@@ -4,11 +4,12 @@ import * as admin from "firebase-admin";
 import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { defineString } from "firebase-functions/params";
+import { defineString, defineSecret } from "firebase-functions/params";
 
 const SUPABASE_URL = defineString("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = defineString("SUPABASE_SERVICE_ROLE_KEY");
 const SUPABASE_PROJECT_REF = defineString("SUPABASE_PROJECT_REF");
+const INTERNAL_RELAY_SECRET = defineSecret("INTERNAL_RELAY_SECRET");
 admin.initializeApp();
 
 const corsHandler = cors({ origin: true });
@@ -380,3 +381,97 @@ export const myInbox = onRequest({ region: "us-central1" }, (req, res) => {
     }
   });
 });
+/**
+ * notifyInternal
+ *
+ * Internal-only endpoint called by the Supabase push-notification-relay Edge Function.
+ * Protected by a shared secret (INTERNAL_RELAY_SECRET) — never expose to clients.
+ *
+ * Receives a notification for a single user, writes it to Firestore inbox,
+ * and delivers an FCM push to all of the user's registered devices.
+ *
+ * Body: { userId, title, body, supabaseNotificationId, data? }
+ */
+export const notifyInternal = onRequest(
+  { region: "us-central1", secrets: [INTERNAL_RELAY_SECRET] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    // Verify the shared secret so only our Edge Function can call this
+    const relaySecret = INTERNAL_RELAY_SECRET.value();
+    const incoming = req.headers["x-relay-secret"];
+    if (!relaySecret || !incoming || incoming !== relaySecret) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const { userId, title, body, supabaseNotificationId, data } = req.body ?? {};
+
+      if (!userId || typeof userId !== "string") {
+        res.status(400).json({ error: "userId is required" });
+        return;
+      }
+      if (!title || typeof title !== "string") {
+        res.status(400).json({ error: "title is required" });
+        return;
+      }
+      if (!body || typeof body !== "string") {
+        res.status(400).json({ error: "body is required" });
+        return;
+      }
+
+      // Use the Supabase notification id as the Firestore document id so
+      // myInbox can correlate them. Fall back to a new Firestore id if missing.
+      const nid: string =
+        typeof supabaseNotificationId === "string" && supabaseNotificationId
+          ? `supabase_${supabaseNotificationId}`
+          : admin.firestore().collection("notifications").doc().id;
+
+      // Write notification content doc (readable by myInbox)
+      await admin.firestore().collection("notifications").doc(nid).set({
+        title,
+        body,
+        data: data ?? {},
+        createdAt: nowTs(),
+        audienceType: "single_user",
+        routeId: null,
+      });
+
+      // Write inbox entry so the user sees it in myInbox
+      await admin
+        .firestore()
+        .collection("users")
+        .doc(userId)
+        .collection("inbox")
+        .doc(nid)
+        .set({ notificationId: nid, createdAt: nowTs(), readAt: null });
+
+      // Collect FCM tokens for this user and send the push
+      const tokenToDeviceRef = await collectTokensForRecipients([userId]);
+
+      // FCM data payload values must all be strings
+      const stringData: Record<string, string> = { notificationId: nid };
+      if (data && typeof data === "object") {
+        for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+          if (v !== null && v !== undefined) stringData[k] = String(v);
+        }
+      }
+
+      const { sentCount, failedCount } = await sendFcmAndCleanupInvalid(tokenToDeviceRef, {
+        tokens: [],
+        notification: { title, body },
+        data: stringData,
+      });
+
+      logger.info(`[notifyInternal] userId=${userId} nid=${nid} devices=${tokenToDeviceRef.length} sent=${sentCount} failed=${failedCount}`);
+      res.json({ ok: true, notificationId: nid, sentCount, failedCount });
+    } catch (e: any) {
+      logger.error("[notifyInternal] error:", e);
+      res.status(500).json({ error: e?.message ?? "Unknown error" });
+    }
+  }
+);
