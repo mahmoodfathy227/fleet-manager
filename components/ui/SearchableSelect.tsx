@@ -14,6 +14,7 @@ interface SearchableSelectProps {
   options: SearchableSelectOption[]
   value: string
   onChange: (value: string) => void
+  onSearchChange?: (search: string) => void
   placeholder?: string
   id?: string
   className?: string
@@ -24,6 +25,7 @@ export function SearchableSelect({
   options,
   value,
   onChange,
+  onSearchChange,
   placeholder = 'Select...',
   id,
   className,
@@ -97,7 +99,7 @@ export function SearchableSelect({
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); onSearchChange?.(e.target.value) }}
             placeholder="Search..."
             className="w-full rounded-md border border-slate-200 py-1.5 pl-8 pr-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#023E8A]"
             autoFocus

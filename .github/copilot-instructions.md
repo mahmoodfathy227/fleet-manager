@@ -11,6 +11,16 @@ Before writing, editing, or deleting **any** line of code in this codebase:
 
 > Skipping these checks is the primary cause of runtime errors in this project (e.g. `PGRST204 column not found`, `400 Bad Request`, `Bucket not found`).
 
+### Before writing any migration or schema change
+
+Before proposing an `ALTER TABLE`, `CREATE TABLE`, `DROP`, or any DDL statement:
+
+1. **Query the live DB via MCP** — use `mcp_supabase_execute_sql` to check what already exists in `information_schema.columns`, `information_schema.tables`, or `pg_proc`. The migration files in `supabase/migrations/` may not reflect production — cross-check against the live schema.
+2. **Scan existing migrations** — search `supabase/migrations/` for any prior migration that already applies the same change (e.g. a DROP NOT NULL, an added column, a renamed function). If it was already applied, do NOT write it again.
+3. **Check for conflicts** — if a migration adds a column that already exists, or drops a constraint that is already gone, it will fail when applied. Confirm first.
+
+> The `notifications` table is a known example: 6 legacy columns were declared NOT NULL in early migrations, then made nullable in a later one. The live DB is nullable. Any tool or agent that reads only the CREATE TABLE migration will see a false NOT NULL and suggest an unnecessary fix.
+
 ---
 
 ## Pre-Commit Checklist
@@ -101,7 +111,7 @@ Four notification-related tables exist. Three are effectively dead:
 
 | Table | Status | Issue |
 |-------|--------|-------|
-| `notifications` | ✅ Active — dashboard reads this | 6 compliance-specific columns are NOT NULL but meaningless for non-compliance types (breakdown, tardiness). Existing inserts abuse these columns with dummy values. **ALTER TABLE DROP NOT NULL fix is required.** |
+| `notifications` | ✅ Active — dashboard reads this | 6 legacy compliance-specific columns (`certificate_type`, `certificate_name`, `expiry_date`, `days_until_expiry`, `entity_type`, `entity_id`) are all **already nullable in production** (confirmed 7 April 2026). |
 | `admin_notifications` | ❌ Dead — 0 rows ever written, nothing reads it | Better designed (has `message` text, `read_at`, `read_by`) but orphaned. Do NOT use it; do NOT migrate to it without a full plan. |
 | `push_notifications` | ❌ Dead — 0 rows, Firebase infra never activated | Firebase delivery tables. Ignore until Firebase phase begins. |
 | `push_notification_recipients` | ❌ Dead — 0 rows | Same as above. |
@@ -126,10 +136,13 @@ Four notification-related tables exist. Three are effectively dead:
 | `trip_completed` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
 | `child_not_on_trip` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
 | `new_agreement` | `POST /api/agreements` Next.js route (migration 178) | Parent / Driver / PA auth UUID | App user (parent, driver, or PA) |
+| `admin_broadcast` | `send_admin_broadcast` RPC (migrations 179 + 180) | Each targeted user's auth UUID | App user (recipient) + Admins |
 
 > ⚠️ **Push notification relay rule:** Whenever a new `notification_type` is added that has a non-null `recipient_user_id`, you MUST add a corresponding `case` to the `buildMessage()` function in `supabase/functions/push-notification-relay/index.ts`. Without this, the push will be silently skipped (`default: return null`). After editing, redeploy: `supabase functions deploy push-notification-relay --no-verify-jwt --project-ref ilpfknjpfmgvzjafqtls`
 
 > 📄 **Full relay pipeline documentation** (architecture, Firestore schema, FCM payload, Flutter integration, deployment commands): [`docs/PUSH_NOTIFICATION_RELAY.md`](../docs/PUSH_NOTIFICATION_RELAY.md)
+
+> 📄 **All notification types reference** (what each type means, producer, `details` JSONB shape, push template): [`docs/NOTIFICATION_TYPES.md`](../docs/NOTIFICATION_TYPES.md)
 
 **`cert_expiry_reminder` details JSONB shape:**
 ```json

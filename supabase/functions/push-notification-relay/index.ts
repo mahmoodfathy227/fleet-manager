@@ -43,6 +43,38 @@ interface PushMessage {
   data: Record<string, string>
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Strip Markdown formatting so FCM notification.body is plain text.
+ * Flutter renders the raw body_md for rich in-app display;
+ * the lock-screen preview must be human-readable without symbols.
+ */
+function stripMarkdown(text: string): string {
+  return text
+    // Images: ![alt](url) → alt
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    // Links: [text](url) → text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Fenced code blocks
+    .replace(/```[\s\S]*?```/g, '')
+    // Inline code
+    .replace(/`([^`]+)`/g, '$1')
+    // Headings
+    .replace(/^#{1,6}\s+/gm, '')
+    // Bold + italic (***text*** or ___text___)
+    .replace(/(\*{3}|_{3})(.*?)\1/g, '$2')
+    // Bold (**text** or __text__)
+    .replace(/(\*{2}|_{2})(.*?)\1/g, '$2')
+    // Italic (*text* or _text_)
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    // Horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, '')
+    // Collapse excess blank lines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // ── Notification templates ─────────────────────────────────────────────────
 // Maps notification_type → { title, body } using values from the details JSONB.
 // Returns null for types that should NOT send a push (admin-only types).
@@ -142,6 +174,17 @@ function buildMessage(row: NotificationRow): PushMessage | null {
         body:  `There's a new ${String(d.type ?? 'notice')} you need to review and agree to before continuing.`,
         data:  { type, agreement_id: String(d.agreement_id ?? '') },
       }
+
+    case 'admin_broadcast': {
+      // body_md is the canonical field (migration 180+); fall back to body for
+      // rows inserted before migration 180.
+      const rawBody = d.body_md ? String(d.body_md) : String(d.body ?? '')
+      return {
+        title: String(d.title ?? 'Notification'),
+        body:  stripMarkdown(rawBody),
+        data:  { type },
+      }
+    }
 
     default:
       // Unknown or admin-only type — do not send push
