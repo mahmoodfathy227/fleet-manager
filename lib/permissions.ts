@@ -49,6 +49,8 @@ export const ROUTE_PERMISSIONS: Record<string, string | string[]> = {
   '/dashboard/admin/roles': 'roles.assign',
   '/dashboard/admin/user-approvals': 'users.manage',
   '/dashboard/admin/notifications': ['notifications.send.single', 'notifications.send.route_parents', 'notifications.send.route_crew'],
+  /** Agreements: Supabase RPCs require `user_roles`; UI gated to user/role admins. */
+  '/dashboard/agreements': ['users.manage', 'roles.assign'],
   '/dashboard/my-notifications': 'notifications.inbox',
 }
 

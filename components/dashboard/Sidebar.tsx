@@ -41,6 +41,7 @@ import {
   Wrench,
   User,
   Monitor,
+  ScrollText,
 } from 'lucide-react'
 import { useNotificationCount } from '@/hooks/useNotificationCount'
 import { useComplianceNotificationCount } from '@/hooks/useComplianceNotificationCount'
@@ -126,6 +127,7 @@ const navigationGroups: NavGroup[] = [
       { name: 'Role Management', href: '/dashboard/admin/roles', icon: Shield },
       { name: 'User Approvals', href: '/dashboard/admin/user-approvals', icon: UserCheck },
       { name: 'Send Notification', href: '/dashboard/admin/notifications', icon: Bell },
+      { name: 'Agreements', href: '/dashboard/agreements', icon: ScrollText },
     ],
   },
   {
