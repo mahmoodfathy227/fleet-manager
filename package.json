@@ -23,6 +23,7 @@
     "pizzip": "^3.2.0",
     "react": "^18",
     "react-dom": "^18",
+    "react-markdown": "^9.0.1",
     "recharts": "^2.10.3",
     "supabase": "^2.58.5",
     "tailwind-merge": "^2.2.0",
