@@ -28,6 +28,21 @@ npm run build
 
 > A broken import was pushed previously and caused a full dashboard 5xx outage. This rule exists to prevent that.
 
+### Backend Architecture — Where Logic Lives
+
+Every feature that must be accessible outside the dashboard (mobile app, Postman, third-party) **must be implemented in Supabase**, not in Next.js API routes.
+
+| Layer | Use when |
+|-------|----------|
+| **PostgREST direct** (`/rest/v1/table`) | Simple CRUD where RLS alone is sufficient |
+| **RPC** (`/rest/v1/rpc/fn`) | Business logic that lives entirely in the DB — atomic multi-table writes, validation against DB state, computed reads, SECURITY DEFINER operations. No external calls. |
+| **Edge Function** (`/functions/v1/name`) | Business logic that must leave the DB — external HTTP calls (Firebase, Samsara, email), webhook receivers, Deno/Node runtime required |
+| **Next.js `/api/` routes** | Dashboard-only orchestration (calling Supabase from server-side for the web UI). **Never** the source of truth for a feature — mobile cannot use cookie-based auth. |
+
+> **Rule:** If a feature can be triggered from outside the dashboard (mobile app, cron, webhook), its backend logic must live in an RPC or Edge Function — not in a Next.js route.
+
+---
+
 ### Supabase MCP — Read-Only
 
 The Supabase MCP tool is connected in **read-only mode**. This means:
@@ -110,6 +125,7 @@ Four notification-related tables exist. Three are effectively dead:
 | `trip_started` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
 | `trip_completed` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
 | `child_not_on_trip` | `trg_notify_parents_on_session_change` DB trigger (migration 175) | Parent's auth UUID | Parent |
+| `new_agreement` | `POST /api/agreements` Next.js route (migration 178) | Parent / Driver / PA auth UUID | App user (parent, driver, or PA) |
 
 > ⚠️ **Push notification relay rule:** Whenever a new `notification_type` is added that has a non-null `recipient_user_id`, you MUST add a corresponding `case` to the `buildMessage()` function in `supabase/functions/push-notification-relay/index.ts`. Without this, the push will be silently skipped (`default: return null`). After editing, redeploy: `supabase functions deploy push-notification-relay --no-verify-jwt --project-ref ilpfknjpfmgvzjafqtls`
 
@@ -176,16 +192,12 @@ Update `docs/apidog/FleetManager.postman_collection.json` whenever you:
 
 ### How to update
 
-1. Edit the JSON directly in `docs/apidog/FleetManager.postman_collection.json`
-2. Follow the existing structure — each request has `name`, `request` (method, header, url, body), and `description`
-3. Add the AI draft disclaimer to any new entry description:
-   ```
-   > ⚠️ AI-GENERATED DRAFT — NOT YET REVIEWED
-   ```
-4. When a human has verified an entry, replace the disclaimer with:
-   ```
-   > ✅ Reviewed by [Name] on [Date] — [Confirmed correct / Notes]
-   ```
+**ApiDog is the source of truth.** Do not edit the JSON file directly.
+
+1. Add or update the endpoint **in ApiDog** (the live imported collection)
+2. Test the endpoint in ApiDog
+3. When ready to persist: **Export** the collection from ApiDog → overwrite `docs/apidog/FleetManager.postman_collection.json` → commit
+4. **Never** re-import the JSON file into an ApiDog project that already has edits — this will overwrite your changes. Always export out, never import in again.
 5. **Never** put real credentials (project ref, anon key, service role key) in the file — always use `{{variable}}` placeholders
 
 ### Architecture reminder (for writing descriptions)

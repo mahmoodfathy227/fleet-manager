@@ -136,6 +136,13 @@ function buildMessage(row: NotificationRow): PushMessage | null {
       }
     }
 
+    case 'new_agreement':
+      return {
+        title: 'Action required',
+        body:  `There's a new ${String(d.type ?? 'notice')} you need to review and agree to before continuing.`,
+        data:  { type, agreement_id: String(d.agreement_id ?? '') },
+      }
+
     default:
       // Unknown or admin-only type — do not send push
       return null
