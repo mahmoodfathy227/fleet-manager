@@ -43,6 +43,10 @@ firebase/functions/service-account.json
 *firebase-adminsdk*.json
 firebase/functions/.env.*
 
+# Firebase functions build output and dependencies
+firebase/functions/node_modules/
+firebase/functions/lib/
+
 # Firebase debug logs
 *.log
 firebase-debug.log
