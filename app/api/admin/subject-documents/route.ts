@@ -1,18 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { NextRequest, NextResponse } from 'next/server'
 
-async function getUserId() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { supabase, userId: null }
-  let userId: number | null = null
-  const byAuthId = await supabase.from('users').select('id').eq('user_id', user.id).maybeSingle()
-  if (byAuthId.data?.id) userId = byAuthId.data.id
-  if (userId == null && user.email) {
-    const byEmail = await supabase.from('users').select('id').ilike('email', user.email).maybeSingle()
-    if (byEmail.data?.id) userId = byEmail.data.id
+async function getCallerUserId(): Promise<number | null> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+    const svc = createServiceClient()
+    if (user.email) {
+      const { data } = await svc.from('users').select('id').ilike('email', user.email).maybeSingle()
+      if (data?.id) return data.id as number
+    }
+    return null
+  } catch {
+    return null
   }
-  return { supabase, userId }
 }
 
 function buildSubjectFilter(subjectType: string, subjectId: string) {
@@ -27,7 +30,7 @@ function buildSubjectFilter(subjectType: string, subjectId: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase } = await getUserId()
+    const svc = createServiceClient()
     const params = request.nextUrl.searchParams
     const subject_type = params.get('subject_type')
     const subject_id = params.get('subject_id')
@@ -41,7 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid subject_id' }, { status: 400 })
     }
 
-    const { data: requirements, error: reqError } = await supabase
+    const { data: requirements, error: reqError } = await svc
       .from('document_requirements')
       .select('*')
       .eq('subject_type', subject_type)
@@ -50,7 +53,7 @@ export async function GET(request: NextRequest) {
 
     if (reqError) throw reqError
 
-    const { data: documents, error: docError } = await supabase
+    const { data: documents, error: docError } = await svc
       .from('subject_documents')
       .select(`
         *,
@@ -65,11 +68,13 @@ export async function GET(request: NextRequest) {
 
     if (docError) throw docError
 
+    console.debug('[subject-documents GET] subject_type=%s id=%s docs=%d', subject_type, subject_id, documents?.length ?? 0)
     return NextResponse.json({
       requirements: requirements || [],
       documents: documents || [],
     })
   } catch (error: any) {
+    console.error('[subject-documents GET] error', error)
     return NextResponse.json(
       { error: error.message || 'Failed to load subject documents' },
       { status: 500 }
@@ -79,7 +84,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, userId } = await getUserId()
+    const userId = await getCallerUserId()
     const body = await request.json()
     const {
       requirement_id,
@@ -114,18 +119,20 @@ export async function POST(request: NextRequest) {
       updated_by: userId,
     }
 
-    const { data, error } = await supabase
+    const svc = createServiceClient()
+    const { data, error } = await svc
       .from('subject_documents')
       .insert(payload)
       .select('*, document_requirements(*)')
       .single()
     if (error) throw error
+    console.debug('[subject-documents POST] created', data?.id)
     return NextResponse.json({ document: data })
   } catch (error: any) {
+    console.error('[subject-documents POST] error', error)
     return NextResponse.json(
       { error: error.message || 'Failed to create subject document' },
       { status: 500 }
     )
   }
 }
-

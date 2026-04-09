@@ -349,7 +349,7 @@ export default function CreateEmployeePage() {
         if (paErr) throw paErr
         await fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ table_name: 'passenger_assistants', record_id: paResult?.[0]?.id ?? employeeId, action: 'CREATE' }) })
         if (uploadedDocs.length > 0) {
-          const docRecords = uploadedDocs.map(doc => ({ file_url: JSON.stringify([doc.fileUrl]), file_name: doc.fileName, file_type: doc.fileType, file_path: doc.fileUrl, doc_type: doc.docType, uploaded_at: new Date().toISOString() }))
+          const docRecords = uploadedDocs.map(doc => ({ file_url: doc.fileUrl, file_name: doc.fileName, file_type: doc.fileType, file_path: doc.fileUrl, doc_type: doc.docType, uploaded_at: new Date().toISOString() }))
           const { data: insertedDocs } = await supabase.from('documents').insert(docRecords).select('id')
           if (insertedDocs?.length) {
             for (const doc of insertedDocs) {
@@ -396,7 +396,7 @@ export default function CreateEmployeePage() {
             const { data: up } = await supabase.storage.from('PA_DOCUMENTS').upload(path, file)
             if (up) {
               const { data: { publicUrl } } = supabase.storage.from('PA_DOCUMENTS').getPublicUrl(path)
-              const { data: docRecord } = await supabase.from('documents').insert({ file_url: JSON.stringify([publicUrl]), file_name: file.name, file_type: file.type || 'application/octet-stream', file_path: path, doc_type: 'Certificate', uploaded_at: new Date().toISOString() }).select('id').single()
+              const { data: docRecord } = await supabase.from('documents').insert({ file_url: publicUrl, file_name: file.name, file_type: file.type || 'application/octet-stream', file_path: path, doc_type: 'Certificate', uploaded_at: new Date().toISOString() }).select('id').single()
               if (docRecord) {
                 await supabase.from('document_pa_links').insert({ document_id: docRecord.id, pa_employee_id: employeeId })
                 const existing = autoCreatedDocs.find(d => norm(d.requirement_id) === norm(requirementId))

@@ -513,7 +513,7 @@ export default function RouteSessionsClient({ routeId, passengers }: RouteSessio
                                 <li key={doc.id} className="flex items-center justify-between text-xs bg-slate-50 rounded px-2 py-1 border border-slate-100">
                                   <span className="font-medium text-slate-700 truncate">{doc.file_name || doc.doc_type || 'Document'}</span>
                                   {doc.file_url && (
-                                    <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
+                                    <a href={(() => { try { const p = JSON.parse(doc.file_url); return Array.isArray(p) ? p[0] : doc.file_url } catch { return doc.file_url } })()} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
                                       <Eye className="h-3 w-3" /> View
                                     </a>
                                   )}

@@ -395,7 +395,7 @@ function EditVehiclePageClient({ id }: { id: string }) {
             const { data: docRow, error: docErr } = await supabase
               .from('documents')
               .insert({
-                file_url: JSON.stringify([doc.fileUrl]),
+                file_url: doc.fileUrl,
                 file_name: doc.fileName,
                 file_type: doc.fileType,
                 file_path: doc.filePath,

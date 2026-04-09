@@ -295,7 +295,7 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
       // Create document records and link to driver
       if (uploadedDocuments.length > 0 && driver) {
         const documentRecords = uploadedDocuments.map(doc => ({
-          file_url: JSON.stringify([doc.fileUrl]),
+          file_url: doc.fileUrl,
           file_name: doc.fileName,
           file_type: doc.fileType,
           file_path: doc.fileUrl,

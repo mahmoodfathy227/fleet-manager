@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { formatDate } from '@/lib/utils'
+import { formatDate, toDateOnlyStringForInput } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -60,6 +60,20 @@ const defaultDraft: Draft = {
   notes: '',
 }
 
+/** Safely extract the first real URL from a file_url field.
+ *  Some older records stored JSON.stringify([url]) — handle both formats. */
+function resolveFileUrl(raw: string | null | undefined): string {
+  if (!raw) return '#'
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      console.debug('[SubjectDocumentsChecklist] resolveFileUrl: parsed JSON array', parsed[0])
+      return parsed[0]
+    }
+  } catch { /* raw is a plain URL string */ }
+  return raw
+}
+
 /** Show linked document(s) for a subject_document in view mode */
 function LinkedDocumentsDisplay({ doc }: { doc: SubjectDocument | undefined }) {
   const links = doc?.document_subject_document_links
@@ -70,7 +84,7 @@ function LinkedDocumentsDisplay({ doc }: { doc: SubjectDocument | undefined }) {
       {files.map((f) => (
         <a
           key={f.id}
-          href={f.file_url || '#'}
+          href={resolveFileUrl(f.file_url)}
           target="_blank"
           rel="noreferrer"
           className="text-sm text-primary hover:underline block truncate max-w-[200px]"
@@ -124,25 +138,24 @@ export function SubjectDocumentsChecklist({
         try {
           res = await fetch(`/api/admin/subject-documents?subject_type=${subjectType}&subject_id=${subjectId}`)
         } catch (fetchError: any) {
-          // Handle network errors (CORS, connection refused, etc.)
-          throw new Error(fetchError.message?.includes('fetch') 
-            ? 'Network error: Unable to connect to server. Please check your internet connection.'
-            : fetchError.message || 'Failed to load documents')
+          throw new Error(
+            fetchError.message?.includes('fetch')
+              ? 'Network error: Unable to connect to server. Please check your internet connection.'
+              : fetchError.message || 'Failed to load documents'
+          )
         }
-        
-        // Handle HTTP errors
+
         if (!res.ok) {
           let errorMessage = 'Failed to load documents'
           try {
             const errorData = await res.json()
             errorMessage = errorData.error || errorMessage
           } catch {
-            // If response is not JSON, use status text
             errorMessage = res.statusText || `Server returned ${res.status}`
           }
           throw new Error(errorMessage)
         }
-        
+
         const data = await res.json()
         setRequirements(data.requirements || [])
         setDocuments(data.documents || [])
@@ -152,15 +165,15 @@ export function SubjectDocumentsChecklist({
           nextDrafts[req.id] = {
             status: existing?.status || 'missing',
             certificate_number: existing?.certificate_number || '',
-            issue_date: existing?.issue_date || '',
-            expiry_date: existing?.expiry_date || '',
+            issue_date: toDateOnlyStringForInput(existing?.issue_date ?? ''),
+            expiry_date: toDateOnlyStringForInput(existing?.expiry_date ?? ''),
             notes: existing?.notes || '',
           }
         })
         setDrafts(nextDrafts)
       } catch (err: any) {
-        // Handle network errors and other fetch failures
-        const errorMessage = err.message || 'Failed to load documents. Please check your connection and try again.'
+        const errorMessage =
+          err.message || 'Failed to load documents. Please check your connection and try again.'
         setError(errorMessage)
         console.error('Error loading subject documents:', err)
       } finally {
@@ -200,27 +213,35 @@ export function SubjectDocumentsChecklist({
             subject_id: subjectId,
             status: draft.status,
             certificate_number: draft.certificate_number || null,
-            issue_date: draft.issue_date || null,
-            expiry_date: draft.expiry_date || null,
+            issue_date: toDateOnlyStringForInput(draft.issue_date) || null,
+            expiry_date: toDateOnlyStringForInput(draft.expiry_date) || null,
             notes: draft.notes || null,
           }),
         })
       } catch (fetchError: any) {
-        throw new Error(fetchError.message?.includes('fetch') 
-          ? 'Network error: Unable to connect to server. Please check your internet connection.'
-          : fetchError.message || 'Failed to create document')
+        throw new Error(
+          fetchError.message?.includes('fetch')
+            ? 'Network error: Unable to connect to server. Please check your internet connection.'
+            : fetchError.message || 'Failed to create document'
+        )
       }
-      
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         const errorMessage = errorData?.error || res.statusText || `Server returned ${res.status}`
         if (res.status === 409 || /unique|duplicate/.test(String(errorMessage).toLowerCase())) {
-          const refetch = await fetch(`/api/admin/subject-documents?subject_type=${subjectType}&subject_id=${subjectId}`)
+          const refetch = await fetch(
+            `/api/admin/subject-documents?subject_type=${subjectType}&subject_id=${subjectId}`
+          )
           if (refetch.ok) {
             const { documents: refetchedDocs } = await refetch.json()
-            const existingDoc = (refetchedDocs || []).find((d: SubjectDocument) => normId(d.requirement_id) === normId(requirementId))
+            const existingDoc = (refetchedDocs || []).find(
+              (d: SubjectDocument) => normId(d.requirement_id) === normId(requirementId)
+            )
             if (existingDoc) {
-              setDocuments((prev) => prev.filter((x) => normId(x.requirement_id) !== normId(requirementId)).concat(existingDoc))
+              setDocuments((prev) =>
+                prev.filter((x) => normId(x.requirement_id) !== normId(requirementId)).concat(existingDoc)
+              )
               return existingDoc
             }
           }
@@ -232,7 +253,8 @@ export function SubjectDocumentsChecklist({
       setDocuments((prev) => [data.document, ...prev])
       return data.document as SubjectDocument
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to create document. Please check your connection and try again.'
+      const errorMessage =
+        err.message || 'Failed to create document. Please check your connection and try again.'
       throw new Error(errorMessage)
     }
   }
@@ -242,31 +264,39 @@ export function SubjectDocumentsChecklist({
     setError(null)
     try {
       const draft = drafts[requirement.id] || defaultDraft
-      const existing = documentsByRequirement[requirement.id]
-      if (!existing) {
-        await ensureDocument(requirement.id)
-        return
+      let subjectDoc =
+        documentsByRequirement[requirement.id] ||
+        documents.find((d) => normId(d.requirement_id) === normId(requirement.id))
+      if (!subjectDoc) {
+        subjectDoc = await ensureDocument(requirement.id)
+        if (!subjectDoc) return
       }
-      
+
+      const issueDate = toDateOnlyStringForInput(draft.issue_date) || null
+      const expiryDate = toDateOnlyStringForInput(draft.expiry_date) || null
+      const patchBody = {
+        status: draft.status,
+        certificate_number: draft.certificate_number || null,
+        issue_date: issueDate,
+        expiry_date: expiryDate,
+        notes: draft.notes || null,
+      }
+
       let res: Response
       try {
-        res = await fetch(`/api/admin/subject-documents/${existing.id}`, {
+        res = await fetch(`/api/admin/subject-documents/${subjectDoc.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            status: draft.status,
-            certificate_number: draft.certificate_number || null,
-            issue_date: draft.issue_date || null,
-            expiry_date: draft.expiry_date || null,
-            notes: draft.notes || null,
-          }),
+          body: JSON.stringify(patchBody),
         })
       } catch (fetchError: any) {
-        throw new Error(fetchError.message?.includes('fetch') 
-          ? 'Network error: Unable to connect to server. Please check your internet connection.'
-          : fetchError.message || 'Failed to update document')
+        throw new Error(
+          fetchError.message?.includes('fetch')
+            ? 'Network error: Unable to connect to server. Please check your internet connection.'
+            : fetchError.message || 'Failed to update document'
+        )
       }
-      
+
       if (!res.ok) {
         let errorMessage = 'Failed to update document'
         try {
@@ -277,11 +307,28 @@ export function SubjectDocumentsChecklist({
         }
         throw new Error(errorMessage)
       }
-      
+
       const data = await res.json()
       setDocuments((prev) => prev.map((doc) => (doc.id === data.document.id ? data.document : doc)))
+      setDrafts((prev) => ({
+        ...prev,
+        [requirement.id]: {
+          status: data.document.status || 'missing',
+          certificate_number: data.document.certificate_number || '',
+          issue_date: toDateOnlyStringForInput(data.document.issue_date ?? ''),
+          expiry_date: toDateOnlyStringForInput(data.document.expiry_date ?? ''),
+          notes: data.document.notes || '',
+        },
+      }))
+      console.debug('[SubjectDocumentsChecklist] saved subject_document', {
+        requirementId: requirement.id,
+        subjectDocumentId: data.document.id,
+        issue_date: patchBody.issue_date,
+        expiry_date: patchBody.expiry_date,
+      })
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to save document. Please check your connection and try again.'
+      const errorMessage =
+        err.message || 'Failed to save document. Please check your connection and try again.'
       setError(errorMessage)
       console.error('Error saving document:', err)
     } finally {
@@ -303,9 +350,7 @@ export function SubjectDocumentsChecklist({
         .from(bucket)
         .upload(path, file, { cacheControl: '3600', upsert: true })
       if (uploadError) throw uploadError
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(path)
+      const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(path)
       const payload = {
         file_name: file.name,
         file_type: file.type || 'application/octet-stream',
@@ -370,7 +415,6 @@ export function SubjectDocumentsChecklist({
             vehicle_id: subjectId,
           })
         }
-        // employee: document is linked via document_subject_document_links only (subject_document has employee_id)
       }
     } catch (err: any) {
       setError(err.message || 'Failed to upload document')
@@ -437,22 +481,32 @@ export function SubjectDocumentsChecklist({
                       <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
                         <div>
                           <p className="text-[10px] text-slate-500 uppercase tracking-wide">Status</p>
-                          <p className="text-sm text-slate-900 mt-0.5">{displayStatus(effectiveStatus(doc, display.status))}</p>
+                          <p className="text-sm text-slate-900 mt-0.5">
+                            {displayStatus(effectiveStatus(doc, display.status))}
+                          </p>
                         </div>
                         {req.requires_number && (
                           <div>
-                            <p className="text-[10px] text-slate-500 uppercase tracking-wide">Certificate number</p>
-                            <p className="text-sm text-slate-900 mt-0.5">{display.certificate_number || '—'}</p>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wide">
+                              Certificate number
+                            </p>
+                            <p className="text-sm text-slate-900 mt-0.5">
+                              {display.certificate_number || '—'}
+                            </p>
                           </div>
                         )}
                         <div>
                           <p className="text-[10px] text-slate-500 uppercase tracking-wide">Issue date</p>
-                          <p className="text-sm text-slate-900 mt-0.5">{display.issue_date ? formatDate(display.issue_date) : '—'}</p>
+                          <p className="text-sm text-slate-900 mt-0.5">
+                            {display.issue_date ? formatDate(display.issue_date) : '—'}
+                          </p>
                         </div>
                         {req.requires_expiry && (
                           <div>
                             <p className="text-[10px] text-slate-500 uppercase tracking-wide">Expiry date</p>
-                            <p className="text-sm text-slate-900 mt-0.5">{display.expiry_date ? formatDate(display.expiry_date) : '—'}</p>
+                            <p className="text-sm text-slate-900 mt-0.5">
+                              {display.expiry_date ? formatDate(display.expiry_date) : '—'}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -510,7 +564,9 @@ export function SubjectDocumentsChecklist({
                       </div>
                       {req.requires_number && (
                         <div className="space-y-1">
-                          <Label className="text-[10px] uppercase tracking-wide text-slate-500">Certificate number</Label>
+                          <Label className="text-[10px] uppercase tracking-wide text-slate-500">
+                            Certificate number
+                          </Label>
                           <Input
                             className="h-9 text-sm"
                             value={draft.certificate_number || ''}
@@ -524,7 +580,7 @@ export function SubjectDocumentsChecklist({
                         <Input
                           type="date"
                           className="h-9 text-sm"
-                          value={draft.issue_date}
+                          value={toDateOnlyStringForInput(draft.issue_date)}
                           onChange={(e) => updateDraft(req.id, 'issue_date', e.target.value)}
                         />
                       </div>
@@ -534,7 +590,7 @@ export function SubjectDocumentsChecklist({
                           <Input
                             type="date"
                             className="h-9 text-sm"
-                            value={draft.expiry_date}
+                            value={toDateOnlyStringForInput(draft.expiry_date)}
                             onChange={(e) => updateDraft(req.id, 'expiry_date', e.target.value)}
                           />
                         </div>
@@ -551,7 +607,9 @@ export function SubjectDocumentsChecklist({
                       </div>
                       {req.requires_upload && (
                         <div className="space-y-1">
-                          <Label className="text-[10px] uppercase tracking-wide text-slate-500">Upload document</Label>
+                          <Label className="text-[10px] uppercase tracking-wide text-slate-500">
+                            Upload document
+                          </Label>
                           <Input
                             type="file"
                             className="h-9 text-sm"

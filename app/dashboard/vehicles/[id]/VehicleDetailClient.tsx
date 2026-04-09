@@ -28,7 +28,7 @@ import { VehicleSeatingPlan } from '@/lib/types'
 import { SubjectDocumentsChecklist } from '@/components/dashboard/SubjectDocumentsChecklist'
 import VehicleTelematicsPanel from './VehicleTelematicsPanel'
 
-type TabType = 'overview' | 'compliance' | 'certificates' | 'documents' | 'daily-checks'
+type TabType = 'overview' | 'compliance' | 'daily-checks'
 
 interface VehicleDetailClientProps {
   vehicle: any
@@ -94,6 +94,12 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
   useEffect(() => {
     console.debug('[fleet] VehicleDetailClient: vehicle_category labels M1/M2/N1/Hackney_Carriage', vehicleId)
   }, [vehicleId])
+
+  useEffect(() => {
+    if (activeTab === 'compliance') {
+      console.debug('[fleet] VehicleDetailClient: Compliance tab (merged checklist + files)', { vehicleId })
+    }
+  }, [activeTab, vehicleId])
 
   useEffect(() => {
     async function fetchFieldAudit() {
@@ -271,20 +277,6 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
             className={`pb-3 ${activeTab === 'compliance' ? 'text-primary border-b-2 border-primary' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Compliance
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('certificates')}
-            className={`pb-3 ${activeTab === 'certificates' ? 'text-primary border-b-2 border-primary' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Documents & Certificates
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('documents')}
-            className={`pb-3 ${activeTab === 'documents' ? 'text-primary border-b-2 border-primary' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Documents
           </button>
           <button
             type="button"
@@ -529,12 +521,10 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
         </div>
       )}
 
-      {activeTab === 'compliance' && <VehicleComplianceDocuments vehicleId={vehicleId} />}
-      {activeTab === 'certificates' && (
-        <SubjectDocumentsChecklist subjectType="vehicle" subjectId={vehicleId} />
-      )}
-      {activeTab === 'documents' && (
-        <div className="space-y-6">
+      {activeTab === 'compliance' && (
+        <div className="space-y-8">
+          <VehicleComplianceDocuments vehicleId={vehicleId} />
+          <SubjectDocumentsChecklist subjectType="vehicle" subjectId={vehicleId} />
           <VehicleLogbook vehicleId={vehicleId} />
           <VehicleDocuments vehicleId={vehicleId} />
         </div>

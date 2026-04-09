@@ -278,7 +278,7 @@ export default function EditPassengerAssistantPage({ params }: { params: { id: s
       // Insert docs and link to PA
       if (uploadedDocuments.length > 0 && assistant) {
         const documentRecords = uploadedDocuments.map(doc => ({
-          file_url: JSON.stringify([doc.fileUrl]),
+          file_url: doc.fileUrl,
           file_name: doc.fileName,
           file_type: doc.fileType,
           file_path: doc.fileUrl,

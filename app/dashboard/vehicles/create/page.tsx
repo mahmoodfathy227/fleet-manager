@@ -315,6 +315,12 @@ export default function CreateVehiclePage() {
 
       if (data && data[0]) {
         const vehicleId = data[0].id
+        console.debug('[vehicle-create] inserted', {
+          id: vehicleId,
+          off_the_road: data[0].off_the_road,
+          off_the_road_auto: (data[0] as { off_the_road_auto?: boolean })
+            .off_the_road_auto,
+        })
 
         // Upload files to Supabase Storage
         const uploadedDocuments: Array<{
@@ -383,7 +389,7 @@ export default function CreateVehiclePage() {
             const { data: docRow, error: docErr } = await supabase
               .from('documents')
               .insert({
-                file_url: JSON.stringify([doc.fileUrl]),
+                file_url: doc.fileUrl,
                 file_name: doc.fileName,
                 file_type: doc.fileType,
                 file_path: doc.filePath,
@@ -405,33 +411,82 @@ export default function CreateVehiclePage() {
           }
         }
 
-        // Create subject_documents from requirement builder and upload files
+        // After insert, the DB trigger already created subject_documents rows with status='missing'.
+        // Fetch them so we can PATCH (not POST) with any dates the user entered in the form.
+        const existingSubjectDocs: Array<{ id: string; requirement_id: string }> = []
+        {
+          const sdRes = await fetch(
+            `/api/admin/subject-documents?subject_type=vehicle&subject_id=${vehicleId}`
+          )
+          if (sdRes.ok) {
+            const sdData = await sdRes.json()
+            existingSubjectDocs.push(...(sdData.documents || []))
+          }
+        }
+
+        // Save requirement drafts with user-entered data
         const bucket = 'VEHICLE_DOCUMENTS'
         for (const req of vehicleDocRequirements) {
           const draft = requirementDrafts[req.id] ?? defaultRequirementDraft
-          const hasData = draft.status !== 'missing' || draft.certificate_number || draft.issue_date || draft.expiry_date || draft.notes || (draft.files?.length ?? 0) > 0
+          const hasData =
+            draft.status !== 'missing' ||
+            draft.certificate_number ||
+            draft.issue_date ||
+            draft.expiry_date ||
+            draft.notes ||
+            (draft.files?.length ?? 0) > 0
           if (!hasData) continue
+
+          // Find the row the trigger created; if found PATCH it, otherwise POST to create
+          const existingRow = existingSubjectDocs.find((d) => d.requirement_id === req.id)
           try {
-            const res = await fetch('/api/admin/subject-documents', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                requirement_id: req.id,
-                subject_type: 'vehicle',
-                subject_id: vehicleId,
-                status: draft.status,
-                certificate_number: draft.certificate_number || null,
-                issue_date: draft.issue_date || null,
-                expiry_date: draft.expiry_date || null,
-                notes: draft.notes || null,
-              }),
-            })
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({}))
-              console.error('Subject document create error:', errData?.error || res.statusText)
-              continue
+            let subjectDoc: { id: string } | null = null
+            if (existingRow) {
+              // PATCH the existing row with user-entered data
+              const patchRes = await fetch(`/api/admin/subject-documents/${existingRow.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  status: draft.status,
+                  certificate_number: draft.certificate_number || null,
+                  issue_date: draft.issue_date || null,
+                  expiry_date: draft.expiry_date || null,
+                  notes: draft.notes || null,
+                }),
+              })
+              if (!patchRes.ok) {
+                const errData = await patchRes.json().catch(() => ({}))
+                console.error('[vehicle-create] subject_document PATCH error:', errData?.error || patchRes.statusText)
+              } else {
+                const patchData = await patchRes.json()
+                subjectDoc = patchData.document
+                console.debug('[vehicle-create] subject_document patched', { id: existingRow.id, req: req.name })
+              }
+            } else {
+              // Row doesn't exist yet — POST to create it
+              const postRes = await fetch('/api/admin/subject-documents', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  requirement_id: req.id,
+                  subject_type: 'vehicle',
+                  subject_id: vehicleId,
+                  status: draft.status,
+                  certificate_number: draft.certificate_number || null,
+                  issue_date: draft.issue_date || null,
+                  expiry_date: draft.expiry_date || null,
+                  notes: draft.notes || null,
+                }),
+              })
+              if (!postRes.ok) {
+                const errData = await postRes.json().catch(() => ({}))
+                console.error('[vehicle-create] subject_document POST error:', errData?.error || postRes.statusText)
+                continue
+              }
+              const postData = await postRes.json()
+              subjectDoc = postData.document
+              console.debug('[vehicle-create] subject_document posted', { req: req.name })
             }
-            const { document: subjectDoc } = await res.json()
             const subjectDocumentId = subjectDoc?.id
             if (!subjectDocumentId || !draft.files?.length) continue
             for (let i = 0; i < draft.files.length; i++) {
@@ -450,7 +505,7 @@ export default function CreateVehiclePage() {
                   file_name: file.name,
                   file_type: file.type || 'application/octet-stream',
                   file_path: path,
-                  file_url: JSON.stringify([publicUrl]),
+                  file_url: publicUrl,
                   doc_type: req.name,
                   uploaded_at: new Date().toISOString(),
                 })

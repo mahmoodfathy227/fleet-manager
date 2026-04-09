@@ -6,6 +6,7 @@ import { TableSkeleton } from '@/components/ui/Skeleton'
 import { Plus, Eye, Pencil, Car, AlertTriangle, ParkingCircle, CheckCircle } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { VehicleSearchFilters } from './VehicleSearchFilters'
+import { VehicleDeleteButton } from './VehicleDeleteButton'
 import { getVehicles, VehicleFilters } from '@/lib/supabase/vehicles'
 
 async function VehiclesTable({
@@ -78,6 +79,15 @@ async function VehiclesTable({
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </Link>
+                    <VehicleDeleteButton
+                      vehicleId={vehicle.id}
+                      label={
+                        vehicle.vehicle_identifier?.trim() ||
+                        vehicle.registration?.trim() ||
+                        `${vehicle.make || ''} ${vehicle.model || ''}`.trim() ||
+                        `#${vehicle.id}`
+                      }
+                    />
                   </div>
                 </TableCell>
               </TableRow>
