@@ -3,12 +3,14 @@ import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { jwtVerify } from "jose";
+import { createSecretKey, KeyObject } from "crypto";
 import { defineString, defineSecret } from "firebase-functions/params";
 
 const SUPABASE_URL = defineString("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = defineString("SUPABASE_SERVICE_ROLE_KEY");
-const SUPABASE_PROJECT_REF = defineString("SUPABASE_PROJECT_REF");
+const SUPABASE_JWT_SECRET = defineString("SUPABASE_JWT_SECRET");
+const FIRESTORE_DATABASE_ID = defineString("FIRESTORE_DATABASE_ID");
 const INTERNAL_RELAY_SECRET = defineSecret("INTERNAL_RELAY_SECRET");
 admin.initializeApp();
 
@@ -17,7 +19,17 @@ const corsHandler = cors({ origin: true });
 type AudienceType = "single_user" | "route_parents" | "route_crew";
 
 let _supabaseService: ReturnType<typeof createClient> | null = null;
-let _JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
+let _jwtSecret: KeyObject | null = null;
+let _db: FirebaseFirestore.Firestore | null = null;
+
+function getDb(): FirebaseFirestore.Firestore {
+  if (_db) return _db;
+  const dbId = FIRESTORE_DATABASE_ID.value();
+  if (!dbId) throw new Error("FIRESTORE_DATABASE_ID is required.");
+  _db = admin.firestore();
+  _db.settings({ databaseId: dbId });
+  return _db;
+}
 
 function getSupabaseService() {
   if (_supabaseService) return _supabaseService;
@@ -35,16 +47,15 @@ function getSupabaseService() {
   return _supabaseService;
 }
 
-function getJWKS() {
-  if (_JWKS) return _JWKS;
+function getJwtSecret(): KeyObject {
+  if (_jwtSecret) return _jwtSecret;
 
-  const ref = SUPABASE_PROJECT_REF.value();
-  if (!ref) throw new Error("SUPABASE_PROJECT_REF is required.");
+  const secret = SUPABASE_JWT_SECRET.value();
+  if (!secret) throw new Error("SUPABASE_JWT_SECRET is required.");
 
-  const jwksUrl = new URL(`https://${ref}.supabase.co/auth/v1/certs`);
-  _JWKS = createRemoteJWKSet(jwksUrl);
-
-  return _JWKS;
+  // Supabase legacy JWT secret is used as-is (raw UTF-8 string)
+  _jwtSecret = createSecretKey(Buffer.from(secret, "utf8"));
+  return _jwtSecret;
 }
 
 async function requireSupabaseUser(req: any): Promise<{ uid: string; jwt: string }> {
@@ -53,7 +64,7 @@ async function requireSupabaseUser(req: any): Promise<{ uid: string; jwt: string
     throw new Error("Missing Authorization: Bearer <supabase_jwt>");
   }
   const jwt = authHeader.slice("Bearer ".length).trim();
-  const { payload } = await jwtVerify(jwt, getJWKS(), { algorithms: ["RS256"] });
+  const { payload } = await jwtVerify(jwt, getJwtSecret(), { algorithms: ["HS256"] });
   const uid = payload.sub;
   if (!uid || typeof uid !== "string") throw new Error("Invalid JWT: missing sub");
   return { uid, jwt };
@@ -128,7 +139,7 @@ async function collectTokensForRecipients(recipientIds: string[]) {
 
   await Promise.all(
     recipientIds.map(async (uid) => {
-      const snap = await admin.firestore().collection("users").doc(uid).collection("devices").get();
+      const snap = await getDb().collection("users").doc(uid).collection("devices").get();
       snap.forEach((doc) => {
         const d = doc.data() as any;
         const token = d?.token;
@@ -180,7 +191,7 @@ async function sendFcmAndCleanupInvalid(
       if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
         removedInvalidCount += 1;
         const path = chunk[idx].deviceRefPath;
-        deletes.push(admin.firestore().doc(path).delete());
+        deletes.push(getDb().doc(path).delete());
       }
     });
 
@@ -202,8 +213,7 @@ export const registerDevice = onRequest({ region: "us-central1" }, (req, res) =>
       if (!token || typeof token !== "string") throw new Error("token is required");
       if (!platform || typeof platform !== "string") throw new Error("platform is required");
 
-      await admin
-        .firestore()
+      await getDb()
         .collection("users")
         .doc(uid)
         .collection("devices")
@@ -256,11 +266,11 @@ export const sendNotification = onRequest({ region: "us-central1" }, (req, res) 
         return res.json({ notificationId: null, recipientCount: 0, tokenCount: 0, sentCount: 0, failedCount: 0 });
       }
 
-      const notificationId = admin.firestore().collection("notifications").doc().id;
+      const notificationId = getDb().collection("notifications").doc().id;
       const routeId = typeof body.routeId === "number" ? body.routeId : null;
 
       // Write notification doc
-      await admin.firestore().collection("notifications").doc(notificationId).set({
+      await getDb().collection("notifications").doc(notificationId).set({
         title,
         body: messageBody,
         deepLink,
@@ -272,9 +282,9 @@ export const sendNotification = onRequest({ region: "us-central1" }, (req, res) 
       });
 
       // Write inbox docs
-      const batch = admin.firestore().batch();
+      const batch = getDb().batch();
       for (const rid of recipients) {
-        const inboxRef = admin.firestore().collection("users").doc(rid).collection("inbox").doc(notificationId);
+        const inboxRef = getDb().collection("users").doc(rid).collection("inbox").doc(notificationId);
         batch.set(inboxRef, { notificationId, createdAt: nowTs(), readAt: null }, { merge: true });
       }
       await batch.commit();
@@ -319,7 +329,7 @@ export const markRead = onRequest({ region: "us-central1" }, (req, res) => {
       const { notificationId } = req.body ?? {};
       if (!notificationId || typeof notificationId !== "string") throw new Error("notificationId is required");
 
-      const ref = admin.firestore().collection("users").doc(uid).collection("inbox").doc(notificationId);
+      const ref = getDb().collection("users").doc(uid).collection("inbox").doc(notificationId);
       await ref.set({ readAt: nowTs() }, { merge: true });
 
       return res.json({ ok: true });
@@ -338,8 +348,7 @@ export const myInbox = onRequest({ region: "us-central1" }, (req, res) => {
       const { uid } = await requireSupabaseUser(req);
       const limit = Math.min(Number(req.query.limit ?? 50), 200);
 
-      const inboxSnap = await admin
-        .firestore()
+      const inboxSnap = await getDb()
         .collection("users")
         .doc(uid)
         .collection("inbox")
@@ -350,8 +359,8 @@ export const myInbox = onRequest({ region: "us-central1" }, (req, res) => {
       const ids = inboxSnap.docs.map((d) => d.id);
       if (ids.length === 0) return res.json({ items: [] });
 
-      const notifRefs = ids.map((id) => admin.firestore().collection("notifications").doc(id));
-      const notifSnaps = await admin.firestore().getAll(...notifRefs);
+      const notifRefs = ids.map((id) => getDb().collection("notifications").doc(id));
+      const notifSnaps = await getDb().getAll(...notifRefs);
 
       const notifMap = new Map<string, any>();
       notifSnaps.forEach((s) => {
@@ -429,11 +438,11 @@ export const notifyInternal = onRequest(
       const nid: string =
         typeof supabaseNotificationId === "string" && supabaseNotificationId
           ? `supabase_${supabaseNotificationId}`
-          : admin.firestore().collection("notifications").doc().id;
+          : getDb().collection("notifications").doc().id;
 
       // Write notification doc — mirrors Supabase structure so Flutter has
       // the same shape on both sides: notification_type + details + rendered title/body
-      await admin.firestore().collection("notifications").doc(nid).set({
+      await getDb().collection("notifications").doc(nid).set({
         supabase_id:       supabaseNotificationId ?? null,
         notification_type: notification_type ?? null,
         title,
@@ -446,8 +455,7 @@ export const notifyInternal = onRequest(
       });
 
       // Write inbox entry so the user sees it in myInbox
-      await admin
-        .firestore()
+      await getDb()
         .collection("users")
         .doc(userId)
         .collection("inbox")
