@@ -264,7 +264,7 @@ export function SubjectDocumentsChecklist({
     setError(null)
     try {
       const draft = drafts[requirement.id] || defaultDraft
-      let subjectDoc =
+      let subjectDoc: SubjectDocument | null | undefined =
         documentsByRequirement[requirement.id] ||
         documents.find((d) => normId(d.requirement_id) === normId(requirement.id))
       if (!subjectDoc) {
