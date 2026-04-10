@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ConfirmDeleteCard } from '@/components/ui/ConfirmDeleteCard'
 import { ArrowLeft, Trash2, ChevronRight, ChevronLeft, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import { toDateOnlyStringForInput } from '@/lib/utils'
 
 type TabType = 'basic' | 'certificates' | 'documents' | 'maintenance' | 'seating' | 'notes'
 
@@ -35,6 +36,8 @@ function EditVehiclePageClient({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [drivers, setDrivers] = useState<Array<{ id: number; name: string }>>([])
   const [activeTab, setActiveTab] = useState<TabType>('basic')
+  // Map of requirement_id → subject_document id for syncing dates on save
+  const [subjectDocIds, setSubjectDocIds] = useState<Record<string, string>>({})
 
   // File uploads state – each field holds an array to allow multiple files (e.g. policy + schedule for insurance)
   const [fileUploads, setFileUploads] = useState<{ [key: string]: File[] }>({
@@ -158,7 +161,7 @@ function EditVehiclePageClient({ id }: { id: string }) {
         setFormData({
           vehicle_identifier: data.vehicle_identifier || '',
           registration: data.registration || '',
-          registration_expiry_date: data.registration_expiry_date || '',
+          registration_expiry_date: toDateOnlyStringForInput(data.registration_expiry_date) || '',
           make: data.make || '',
           model: data.model || '',
           plate_number: data.plate_number || '',
@@ -168,15 +171,15 @@ function EditVehiclePageClient({ id }: { id: string }) {
           lpg_fuelled: data.lpg_fuelled ?? false,
           ownership_type: data.ownership_type || '',
           council_assignment: data.council_assignment || '',
-          mot_date: data.mot_date || '',
-          tax_date: data.tax_date || '',
-          insurance_expiry_date: data.insurance_expiry_date || '',
+          mot_date: toDateOnlyStringForInput(data.mot_date) || '',
+          tax_date: toDateOnlyStringForInput(data.tax_date) || '',
+          insurance_expiry_date: toDateOnlyStringForInput(data.insurance_expiry_date) || '',
           tail_lift: data.tail_lift || false,
-          loler_expiry_date: data.loler_expiry_date || '',
-          last_serviced: data.last_serviced || '',
-          service_booked_day: data.service_booked_day || '',
-          first_aid_expiry: data.first_aid_expiry || '',
-          fire_extinguisher_expiry: data.fire_extinguisher_expiry || '',
+          loler_expiry_date: toDateOnlyStringForInput(data.loler_expiry_date) || '',
+          last_serviced: toDateOnlyStringForInput(data.last_serviced) || '',
+          service_booked_day: toDateOnlyStringForInput(data.service_booked_day) || '',
+          first_aid_expiry: toDateOnlyStringForInput(data.first_aid_expiry) || '',
+          fire_extinguisher_expiry: toDateOnlyStringForInput(data.fire_extinguisher_expiry) || '',
           taxi_licence_holder_id: data.taxi_licence_holder_id ? String(data.taxi_licence_holder_id) : '',
           spare_vehicle: data.spare_vehicle || false,
           off_the_road: data.off_the_road || false,
@@ -190,9 +193,25 @@ function EditVehiclePageClient({ id }: { id: string }) {
           wheelchair_spaces: '',
           seating_notes: '',
           pmi_weeks: data.pmi_weeks != null ? String(data.pmi_weeks) : '',
-          last_pmi_date: data.last_pmi_date || '',
+          last_pmi_date: toDateOnlyStringForInput(data.last_pmi_date) || '',
         })
         
+        // Load existing subject_documents so we can PATCH expiry dates on save
+        try {
+          const sdRes = await fetch(`/api/admin/subject-documents?subject_type=vehicle&subject_id=${id}`)
+          if (sdRes.ok) {
+            const sdData = await sdRes.json()
+            const idMap: Record<string, string> = {}
+            for (const doc of sdData.documents || []) {
+              idMap[doc.requirement_id] = doc.id
+            }
+            setSubjectDocIds(idMap)
+            console.debug('[vehicle-edit] loaded subject_doc ids', idMap)
+          }
+        } catch (e) {
+          console.error('[vehicle-edit] failed to load subject_doc ids', e)
+        }
+
         // Load seating plan if exists
         const { data: seatingData } = await supabase
           .from('vehicle_seating_plans')
@@ -298,6 +317,34 @@ function EditVehiclePageClient({ id }: { id: string }) {
           throw new Error(`A vehicle with registration "${dataToUpdate.registration}" already exists`)
         }
         throw updateError
+      }
+
+      // Sync expiry dates to subject_documents (MOT Certificate & TAX DATE EXPIRY)
+      // These are the only two vehicle document requirements in the DB.
+      const subjectDocSyncMap: Array<{ reqId: string; expiryDate: string | null }> = [
+        { reqId: 'c37c2cbb-96b1-45af-8eeb-4cf537db36f2', expiryDate: dataToUpdate.mot_date || null },   // MOT Certificate
+        { reqId: '2e27a557-5b9c-49fc-9fe4-f80cc2f5400a', expiryDate: dataToUpdate.tax_date || null },   // TAX DATE EXPIRY
+      ]
+      for (const { reqId, expiryDate } of subjectDocSyncMap) {
+        const sdId = subjectDocIds[reqId]
+        if (!sdId) {
+          console.debug('[vehicle-edit] no subject_doc for requirement', reqId, '- skipping sync')
+          continue
+        }
+        const status = expiryDate
+          ? (new Date(expiryDate) < new Date() ? 'expired' : 'valid')
+          : 'missing'
+        const patchRes = await fetch(`/api/admin/subject-documents/${sdId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expiry_date: expiryDate, status }),
+        })
+        if (patchRes.ok) {
+          console.debug('[vehicle-edit] synced subject_document', sdId, { expiryDate, status })
+        } else {
+          const errBody = await patchRes.json().catch(() => ({}))
+          console.error('[vehicle-edit] subject_document sync failed', reqId, errBody)
+        }
       }
 
       // Upload files to Supabase Storage
@@ -824,8 +871,7 @@ function EditVehiclePageClient({ id }: { id: string }) {
                   </div>
                 </div>
 
-                {/* PHV: MOT */}
-                {formData.vehicle_type === 'PHV' && (
+                {/* MOT Certificate – required for all vehicle types (PSV & PHV) */}
                 <div className="space-y-3 p-3 border rounded-lg">
                   <h3 className="font-semibold text-slate-700 text-sm">MOT Certificate</h3>
                   <div>
@@ -853,7 +899,6 @@ function EditVehiclePageClient({ id }: { id: string }) {
                     <FileListSummary files={fileUploads.mot_file} onClear={() => handleFileChange('mot_file', null)} />
                   </div>
                 </div>
-                )}
 
                 {/* Tax */}
                 <div className="space-y-3 p-3 border rounded-lg">
