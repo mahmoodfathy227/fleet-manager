@@ -50,22 +50,27 @@ export function PassengerSearchFilters() {
     // Debounce URL update to reduce server requests
     searchTimeoutRef.current = setTimeout(() => {
       const params = new URLSearchParams(paramStr)
-      
+      params.delete('page')
+      console.debug('[PassengerSearchFilters] search changed, reset page')
+
       if (value.trim()) {
         params.set('search', value.trim())
       } else {
         params.delete('search')
       }
-      
+
       startTransition(() => {
-        router.push(`?${params.toString()}`)
+        const q = params.toString()
+        router.push(q ? `?${q}` : '/dashboard/passengers')
       })
     }, 400)
   }
 
   const updateFilters = (updates: Record<string, string>) => {
     const params = new URLSearchParams(paramStr)
-    
+    params.delete('page')
+    console.debug('[PassengerSearchFilters] filter changed, reset page', updates)
+
     Object.entries(updates).forEach(([key, value]) => {
       if (value && value !== 'all') {
         params.set(key, value)
@@ -75,7 +80,8 @@ export function PassengerSearchFilters() {
     })
 
     startTransition(() => {
-      router.push(`?${params.toString()}`)
+      const q = params.toString()
+      router.push(q ? `?${q}` : '/dashboard/passengers')
     })
   }
 
