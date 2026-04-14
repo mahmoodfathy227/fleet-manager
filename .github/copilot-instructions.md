@@ -61,6 +61,22 @@ The Supabase MCP tool is connected in **read-only mode**. This means:
 - All schema changes (migrations, function definitions, RLS policies, cron jobs) must be written as a `.sql` migration file in `supabase/migrations/` and applied **manually** by the developer via the Supabase dashboard SQL editor or the Supabase CLI.
 - Always save the SQL to a migration file first, then instruct the developer to run it — never try to apply it directly via MCP.
 
+### MCP Setup for Team Members
+
+The MCP configuration lives in `.vscode/mcp.json` (committed to git). It uses `npx @supabase/mcp-server-supabase` so it works on **any OS** (macOS, Linux, Windows) — the only prerequisite is Node.js.
+
+**First-time setup for each developer:**
+
+1. Go to https://supabase.com/dashboard/account/tokens and generate a Personal Access Token.
+2. Open the workspace in VS Code. The MCP server will auto-start and prompt you for the token.
+3. Paste your token when prompted. VS Code remembers it per session.
+
+**Important:**
+- The project ref (`ilpfknjpfmgvzjafqtls`) is hardcoded in `.vscode/mcp.json` — this is intentional and not secret.
+- The access token is **personal** and **never** stored in git — it's prompted via `${input:...}`.
+- If you also have a **user-level** Supabase MCP server defined in your global VS Code settings (`~/Library/Application Support/Code/User/.../mcp.json` or equivalent), **disable or remove it** to avoid conflicts with the workspace-level config. The workspace config takes priority but having both can cause duplicate server instances.
+- If the MCP server fails to start, check that `npx` is available in your PATH and that your token is valid.
+
 ---
 
 ## Date Formatting

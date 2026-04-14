@@ -2,13 +2,30 @@
   "servers": {
     "supabase": {
       "type": "stdio",
-      "command": "supabase",
-      "args": ["mcp", "--project-ref", "ilpfknjpfmgvzjafqtls", "--read-only"]
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@0.7.0",
+        "--project-ref",
+        "ilpfknjpfmgvzjafqtls",
+        "--read-only"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${input:supabase-access-token}"
+      }
     },
     "firebase": {
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "firebase-tools@latest", "mcp"]
     }
-  }
+  },
+  "inputs": [
+    {
+      "id": "supabase-access-token",
+      "type": "promptString",
+      "description": "Supabase Personal Access Token — generate at https://supabase.com/dashboard/account/tokens",
+      "password": true
+    }
+  ]
 }
