@@ -7,9 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 
-const BASE_PATH = '/dashboard/parent-contacts'
-
-export function ParentContactsSearchFilters() {
+export function ParentContactsSearchFilters({ basePath }: { basePath: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
@@ -31,6 +29,10 @@ export function ParentContactsSearchFilters() {
   }, [searchParams])
 
   useEffect(() => {
+    console.debug('[ParentContactsSearchFilters] mount', { basePath })
+  }, [basePath])
+
+  useEffect(() => {
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     }
@@ -39,7 +41,7 @@ export function ParentContactsSearchFilters() {
   const pushQuery = (params: URLSearchParams) => {
     const q = params.toString()
     startTransition(() => {
-      router.push(q ? `${BASE_PATH}?${q}` : BASE_PATH)
+      router.push(q ? `${basePath}?${q}` : basePath)
     })
   }
 
@@ -80,7 +82,7 @@ export function ParentContactsSearchFilters() {
     setSearch('')
     setRelationship('all')
     console.debug('[ParentContactsSearchFilters] filters cleared')
-    startTransition(() => router.push(BASE_PATH))
+    startTransition(() => router.push(basePath))
   }
 
   const hasActiveFilters = search.trim() !== '' || relationship !== 'all'

@@ -42,6 +42,7 @@ import {
   User,
   Monitor,
   ScrollText,
+  Contact,
 } from 'lucide-react'
 import { useNotificationCount } from '@/hooks/useNotificationCount'
 import { useComplianceNotificationCount } from '@/hooks/useComplianceNotificationCount'
@@ -79,6 +80,7 @@ const navigationGroups: NavGroup[] = [
       { name: 'Drivers', href: '/dashboard/drivers', icon: UserCog },
       { name: 'Passenger Assistants', href: '/dashboard/assistants', icon: UserCheck },
       { name: 'Passengers', href: '/dashboard/passengers', icon: Users },
+      { name: 'Parents', href: '/dashboard/parent-contacts', icon: Contact },
     ],
   },
   {

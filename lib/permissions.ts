@@ -19,6 +19,7 @@ export const ROUTE_PERMISSIONS: Record<string, string | string[]> = {
   '/dashboard/drivers': 'employees.read',
   '/dashboard/assistants': 'employees.read',
   '/dashboard/passengers': 'passengers.read',
+  '/dashboard/parent-contacts': 'passengers.read',
 
   // Operations
   '/dashboard/routes': 'routes.read',
