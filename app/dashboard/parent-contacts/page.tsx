@@ -8,23 +8,52 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { PaginationBar } from '@/components/ui/PaginationBar'
 import { Plus, Eye, Pencil, Users } from 'lucide-react'
+import { ParentContactsSearchFilters } from './ParentContactsSearchFilters'
 
 const PAGE_SIZE = 25
 
-function buildParentContactsQueryString(args: { page?: number }) {
+/** Escape `%`, `_`, and `\` so user input cannot broaden a LIKE / ILIKE pattern. */
+function escapeIlikePattern(raw: string): string {
+  return raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
+export type ParentContactsListFilters = {
+  search?: string
+  relationship?: string
+}
+
+function parseRelationshipFilter(raw?: string): 'Mother' | 'Father' | 'Guardian' | 'other' | undefined {
+  if (!raw || raw === 'all') return undefined
+  const r = raw.trim()
+  const lower = r.toLowerCase()
+  if (lower === 'other') return 'other'
+  if (lower === 'mother') return 'Mother'
+  if (lower === 'father') return 'Father'
+  if (lower === 'guardian') return 'Guardian'
+  if (r === 'Mother' || r === 'Father' || r === 'Guardian') return r
+  return undefined
+}
+
+function buildParentContactsQueryString(args: {
+  page?: number
+  search?: string
+  relationship?: string
+}) {
   const p = new URLSearchParams()
+  if (args.search?.trim()) p.set('search', args.search.trim())
+  if (args.relationship && args.relationship !== 'all') p.set('relationship', args.relationship)
   if (args.page && args.page > 1) p.set('page', String(args.page))
   const q = p.toString()
   return q ? `?${q}` : ''
 }
 
-async function getParentContacts(requestedPage: number) {
+async function getParentContacts(requestedPage: number, filters: ParentContactsListFilters) {
   const supabase = await createClient()
 
   const from = (requestedPage - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  const { data, error, count } = await supabase
+  let query = supabase
     .from('parent_contacts')
     .select(
       `
@@ -35,8 +64,25 @@ async function getParentContacts(requestedPage: number) {
     `,
       { count: 'exact' }
     )
-    .order('full_name')
-    .range(from, to)
+
+  const searchTrimmed = filters.search?.trim()
+  if (searchTrimmed) {
+    const term = escapeIlikePattern(searchTrimmed)
+    query = query.or(
+      `full_name.ilike.%${term}%,phone_number.ilike.%${term}%,email.ilike.%${term}%`
+    )
+  }
+
+  const rel = parseRelationshipFilter(filters.relationship)
+  if (rel === 'Mother' || rel === 'Father' || rel === 'Guardian') {
+    query = query.ilike('relationship', rel)
+  } else if (rel === 'other') {
+    query = query.or('relationship.is.null,relationship.not.in.(Mother,Father,Guardian)')
+  }
+
+  query = query.order('full_name').range(from, to)
+
+  const { data, error, count } = await query
 
   if (error) {
     console.error('[parent-contacts-list] Error fetching parent contacts:', error)
@@ -47,7 +93,11 @@ async function getParentContacts(requestedPage: number) {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   if (requestedPage > totalPages) {
-    const qs = buildParentContactsQueryString({ page: totalPages })
+    const qs = buildParentContactsQueryString({
+      page: totalPages,
+      search: filters.search,
+      relationship: filters.relationship,
+    })
     redirect(`/dashboard/parent-contacts${qs}`)
   }
 
@@ -56,6 +106,8 @@ async function getParentContacts(requestedPage: number) {
       page: requestedPage,
       totalCount,
       returned: (data || []).length,
+      hasSearch: Boolean(searchTrimmed),
+      relationship: rel ?? filters.relationship ?? 'all',
     })
   }
 
@@ -67,18 +119,32 @@ async function getParentContacts(requestedPage: number) {
   }
 }
 
-async function ParentContactsTable({ requestedPage }: { requestedPage: number }) {
-  const { contacts, totalCount, page, pageSize } = await getParentContacts(requestedPage)
+async function ParentContactsTable({
+  requestedPage,
+  filters,
+}: {
+  requestedPage: number
+  filters: ParentContactsListFilters
+}) {
+  const { contacts, totalCount, page, pageSize } = await getParentContacts(requestedPage, filters)
+
+  const base = {
+    search: filters.search,
+    relationship: filters.relationship,
+  }
 
   const prevHref =
     page > 1
-      ? `/dashboard/parent-contacts${buildParentContactsQueryString({ page: page - 1 })}`
+      ? `/dashboard/parent-contacts${buildParentContactsQueryString({ ...base, page: page - 1 })}`
       : null
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
   const nextHref =
     page < totalPages
-      ? `/dashboard/parent-contacts${buildParentContactsQueryString({ page: page + 1 })}`
+      ? `/dashboard/parent-contacts${buildParentContactsQueryString({ ...base, page: page + 1 })}`
       : null
+
+  const hasActiveFilters =
+    Boolean(filters.search?.trim()) || Boolean(filters.relationship && filters.relationship !== 'all')
 
   return (
     <div className="space-y-4">
@@ -98,8 +164,18 @@ async function ParentContactsTable({ requestedPage }: { requestedPage: number })
           <TableBody>
             {contacts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-gray-500">
-                  No parent contacts found. Add your first parent contact to get started.
+                <TableCell colSpan={7} className="text-center text-gray-500 py-10">
+                  {hasActiveFilters ? (
+                    <>
+                      <p className="font-medium text-gray-700">No contacts match your filters</p>
+                      <p className="mt-1 text-sm text-gray-500">Try adjusting search or relationship</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium text-gray-700">No parent contacts found</p>
+                      <p className="mt-1 text-sm text-gray-500">Add your first parent contact to get started</p>
+                    </>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -162,13 +238,18 @@ async function ParentContactsTable({ requestedPage }: { requestedPage: number })
 export default async function ParentContactsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>
+  searchParams: Promise<{ page?: string; search?: string; relationship?: string }>
 }) {
   const params = await searchParams
   const rawPage = parseInt(params?.page ?? '1', 10)
   const requestedPage = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1
 
-  const suspenseKey = String(requestedPage)
+  const filters: ParentContactsListFilters = {
+    search: params?.search,
+    relationship: params?.relationship,
+  }
+
+  const suspenseKey = JSON.stringify({ ...filters, page: requestedPage })
 
   return (
     <div className="space-y-6">
@@ -187,13 +268,17 @@ export default async function ParentContactsPage({
         </Link>
       </div>
 
+      <Suspense fallback={<div className="h-24 w-full max-w-3xl rounded-lg bg-gray-100 animate-pulse" />}>
+        <ParentContactsSearchFilters />
+      </Suspense>
+
       <Card>
         <CardHeader className="rounded-t-xl bg-navy text-white">
           <CardTitle className="text-white">All Parent Contacts</CardTitle>
         </CardHeader>
         <CardContent className="pt-6">
           <Suspense key={suspenseKey} fallback={<TableSkeleton rows={5} columns={7} />}>
-            <ParentContactsTable requestedPage={requestedPage} />
+            <ParentContactsTable requestedPage={requestedPage} filters={filters} />
           </Suspense>
         </CardContent>
       </Card>
