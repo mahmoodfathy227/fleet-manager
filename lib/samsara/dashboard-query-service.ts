@@ -327,7 +327,7 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
   return {
     cards: {
       activeRoutes: activeRoutes.length,
-      vehiclesEnRoute: enRouteVehicleIds.size,
+      vehiclesOnRun: enRouteVehicleIds.size,
       vehiclesIdle: idleVehicles.length,
       noRecentLocationUpdate: vehiclesWithStaleLocation.length,
       totalMileageTodayKm: computeDistance(historyToday || []),

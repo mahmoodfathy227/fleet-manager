@@ -1,9 +1,11 @@
 /**
  * samsara-location-poller
  *
- * Polls Samsara's REST API for current vehicle locations and upserts:
- *   1. vehicles_realtime  — live position (1 row per vehicle, always overwritten)
- *   2. vehicle_telematics_history — append-only log for mileage/fuel reporting
+ * Polls Samsara's REST API for current vehicle locations + engine state and upserts:
+ *   1. vehicles_realtime — live position + engine_state (1 row per vehicle, always overwritten)
+ *
+ * vehicle_telematics_history inserts have been removed — Phase 2 will introduce
+ * vehicle_daily_snapshot for mileage/fuel reporting instead.
  *
  * Auto-mapping: if a Samsara vehicle has no samsara_vehicle_id in the DB yet,
  * this function matches it by licence plate (registration_normalized) and writes
@@ -13,14 +15,15 @@
  * support continuous location streaming. Location data must be pulled via REST.
  *
  * Invocation:
- *   - Scheduled: two pg_cron jobs fire every 30 seconds (migration 177)
- *   - Manual:    POST with header x-sync-token matching SAMSARA_SYNC_TOKEN
+ *   - Scheduled: VPS poller (fleet-poller repo) calls this endpoint every 5s
+ *   - Manual:    POST with Authorization: Bearer <POLLER_SECRET>
  *
  * Environment secrets:
  *   SUPABASE_URL               — auto-injected
  *   SUPABASE_SERVICE_ROLE_KEY  — auto-injected
  *   SAMSARA_API_TOKEN          — your Samsara API key
- *   SAMSARA_SYNC_TOKEN         — shared secret for manual invocation (optional)
+ *   POLLER_SECRET              — shared secret used by the VPS poller (required)
+ *   SAMSARA_SYNC_TOKEN         — legacy shared secret, still accepted for backwards compat
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -29,6 +32,7 @@ const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const SAMSARA_API_TOKEN         = Deno.env.get('SAMSARA_API_TOKEN') ?? ''
 const SAMSARA_SYNC_TOKEN        = Deno.env.get('SAMSARA_SYNC_TOKEN') ?? ''
+const POLLER_SECRET             = Deno.env.get('POLLER_SECRET') ?? ''
 const SAMSARA_BASE_URL          = Deno.env.get('SAMSARA_API_BASE_URL') ?? 'https://api.eu.samsara.com'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -38,16 +42,21 @@ interface SamsaraVehicle {
   licensePlate?: string
 }
 
-interface SamsaraLocation {
+// Response shape from GET /fleet/vehicles/stats?types=gps,engineStates
+interface SamsaraVehicleStat {
   id: string
   name?: string
-  location?: {
+  gps?: {
     latitude?: number
     longitude?: number
     headingDegrees?: number
     speedMilesPerHour?: number
     time?: string
     reverseGeo?: { formattedLocation?: string }
+  }
+  engineStates?: {
+    value?: 'Off' | 'On' | 'Idle'
+    time?: string
   }
 }
 
@@ -100,9 +109,17 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Method not allowed' }, 405)
   }
 
-  const incomingToken = req.headers.get('x-sync-token')
-  if (incomingToken && SAMSARA_SYNC_TOKEN && incomingToken !== SAMSARA_SYNC_TOKEN) {
-    return json({ error: 'Invalid sync token' }, 401)
+  const authHeader = req.headers.get('Authorization') ?? ''
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+  const legacyToken = req.headers.get('x-sync-token') ?? ''
+
+  // Accept either POLLER_SECRET (new VPS poller) or SAMSARA_SYNC_TOKEN (legacy)
+  const validSecrets = [POLLER_SECRET, SAMSARA_SYNC_TOKEN].filter(Boolean)
+  if (validSecrets.length > 0) {
+    const provided = bearerToken || legacyToken
+    if (!provided || !validSecrets.includes(provided)) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
   }
 
   if (!SAMSARA_API_TOKEN) {
@@ -121,8 +138,8 @@ Deno.serve(async (req: Request) => {
       .select('id, samsara_vehicle_id, vehicle_identifier, registration, registration_normalized'),
     Promise.all([
       samsaraGet<SamsaraVehicle>('/fleet/vehicles'),
-      samsaraGet<SamsaraLocation>('/fleet/vehicles/locations'),
-    ]).catch((err): [[],  []] => {
+      samsaraGet<SamsaraVehicleStat>('/fleet/vehicles/stats?types=gps,engineStates'),
+    ]).catch((err): [[], []] => {
       console.error('[samsara-poller] Samsara API error:', err)
       return [[], []]
     }),
@@ -133,10 +150,10 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'DB error loading vehicles' }, 500)
   }
 
-  const [samsaraVehicles, locations] = samsaraResults as [SamsaraVehicle[], SamsaraLocation[]]
+  const [samsaraVehicles, vehicleStats] = samsaraResults as [SamsaraVehicle[], SamsaraVehicleStat[]]
 
-  if (locations.length === 0) {
-    return json({ ok: true, message: 'No location data from Samsara', updated: 0 })
+  if (vehicleStats.length === 0) {
+    return json({ ok: true, message: 'No stats data from Samsara', updated: 0 })
   }
 
   const allDbVehicles = (dbResult.data ?? []) as DbVehicle[]
@@ -168,10 +185,9 @@ Deno.serve(async (req: Request) => {
   let updated = 0
   let autoMapped = 0
   let unmatched = 0
-  const historyRows: Array<Record<string, unknown>> = []
 
-  for (const loc of locations) {
-    const samsaraVehicleId = String(loc.id ?? '')
+  for (const stat of vehicleStats) {
+    const samsaraVehicleId = String(stat.id ?? '')
     let vehicle = vehicleByVehicleId.get(samsaraVehicleId)
 
     // ── Auto-mapping: try to match by registration plate ────────────────
@@ -206,8 +222,8 @@ Deno.serve(async (req: Request) => {
       continue
     }
 
-    const gps             = loc.location ?? {}
-    const reverseGeo      = (gps as { reverseGeo?: { formattedLocation?: string } }).reverseGeo ?? {}
+    const gps             = stat.gps ?? {}
+    const reverseGeo      = gps.reverseGeo ?? {}
     const latitude        = parseNumber(gps.latitude)
     const longitude       = parseNumber(gps.longitude)
     const headingDeg      = parseNumber(gps.headingDegrees)
@@ -215,6 +231,7 @@ Deno.serve(async (req: Request) => {
     const speedKph        = speedMph != null ? Number((speedMph * 1.609344).toFixed(2)) : null
     const locationTime    = gps.time ?? now
     const formattedLocation = reverseGeo.formattedLocation ?? null
+    const engineState     = stat.engineStates?.value ?? null
 
     const { error: upsertErr } = await supabase
       .from('vehicles_realtime')
@@ -222,13 +239,14 @@ Deno.serve(async (req: Request) => {
         {
           id:                 samsaraVehicleId,
           vehicle_db_id:      vehicle.id,
-          name:               loc.name ?? vehicle.vehicle_identifier ?? vehicle.registration ?? samsaraVehicleId,
+          name:               stat.name ?? vehicle.vehicle_identifier ?? vehicle.registration ?? samsaraVehicleId,
           latitude,
           longitude,
           heading:            headingDeg,
           speed:              speedKph,
           formatted_location: formattedLocation,
           location_time:      locationTime,
+          engine_state:       engineState,
           updated_at:         now,
         },
         { onConflict: 'id' }
@@ -240,31 +258,8 @@ Deno.serve(async (req: Request) => {
     }
 
     updated++
-
-    historyRows.push({
-      vehicle_id:           vehicle.id,
-      samsara_vehicle_id:   samsaraVehicleId,
-      latitude,
-      longitude,
-      heading:              headingDeg,
-      speed_kph:            speedKph,
-      telematics_timestamp: locationTime,
-      synced_at:            now,
-      raw_payload:          loc,
-    })
   }
 
-  // ── Batch insert history rows ──────────────────────────────────────────
-  if (historyRows.length > 0) {
-    const { error: histErr } = await supabase
-      .from('vehicle_telematics_history')
-      .insert(historyRows)
-
-    if (histErr) {
-      console.error('[samsara-poller] history insert error:', histErr.message)
-    }
-  }
-
-  console.log(`[samsara-poller] updated=${updated} autoMapped=${autoMapped} unmatched=${unmatched} total=${locations.length}`)
-  return json({ ok: true, updated, autoMapped, unmatched, total: locations.length, syncedAt: now })
+  console.log(`[samsara-poller] updated=${updated} autoMapped=${autoMapped} unmatched=${unmatched} total=${vehicleStats.length}`)
+  return json({ ok: true, updated, autoMapped, unmatched, total: vehicleStats.length, syncedAt: now })
 })

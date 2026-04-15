@@ -2,16 +2,30 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { loadGoogleMapsScript } from '@/lib/google-maps-loader'
 import { CLEAN_FLEET_MAP_STYLES } from '@/lib/google-maps-style'
 import { Activity, Car, Clock3, Fuel, Route, MapPinned } from 'lucide-react'
 
+type VehicleRealtime = {
+  id: string
+  vehicle_db_id: number | null
+  name: string | null
+  latitude: number | null
+  longitude: number | null
+  heading: number | null
+  speed: number | null
+  engine_state: string | null
+  location_time: string | null
+  updated_at: string | null
+}
+
 type LiveOpsResponse = {
   cards: {
     activeRoutes: number
-    vehiclesEnRoute: number
+    vehiclesOnRun: number
     vehiclesIdle: number
     noRecentLocationUpdate: number
     totalMileageTodayKm: number
@@ -94,7 +108,10 @@ export default function LiveOperationsPanel({
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
+  const markerMapRef = useRef<Map<number, google.maps.Marker>>(new Map())
   const polylinesRef = useRef<google.maps.Polyline[]>([])
+  const fitBoundsDoneRef = useRef(false)
+  const realtimeVehiclesRef = useRef<Map<number, VehicleRealtime>>(new Map())
 
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || ''
   const shouldShowMap = !loading && !error && Boolean(apiKey)
@@ -118,6 +135,7 @@ export default function LiveOperationsPanel({
     }
   }
 
+  // ── Stat cards: poll every 30s (route/session data from DB) ────────────
   useEffect(() => {
     void fetchData(routeFilter)
     const timer = setInterval(() => {
@@ -125,6 +143,26 @@ export default function LiveOperationsPanel({
     }, 30000)
     return () => clearInterval(timer)
   }, [routeFilter])
+
+  // ── Live positions: Supabase Realtime subscription on vehicles_realtime ─
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('vehicles_realtime_live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'vehicles_realtime' },
+        (payload) => {
+          const row = payload.new as VehicleRealtime
+          if (!row?.vehicle_db_id) return
+          realtimeVehiclesRef.current.set(row.vehicle_db_id, row)
+          updateMarkerForVehicle(row)
+        }
+      )
+      .subscribe()
+    return () => { void supabase.removeChannel(channel) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const visibleRoutes = useMemo(() => {
     const routes = data?.map.activeRoutes || []
@@ -206,12 +244,72 @@ export default function LiveOperationsPanel({
     }
   }, [apiKey, shouldShowMap])
 
+  // ── Helper: derive marker icon from engine_state + speed ───────────────
+  function getMarkerIcon(
+    engineState: string | null,
+    speedKph: number | null,
+    heading: number | null,
+    stale: boolean,
+    selected: boolean
+  ): google.maps.Symbol {
+    const scale = selected ? 10 : 8
+    if (stale || engineState === null) {
+      // Stale / unknown — hollow gray circle
+      return { path: window.google.maps.SymbolPath.CIRCLE, scale, fillColor: '#94a3b8', fillOpacity: 0.3, strokeColor: '#94a3b8', strokeWeight: 2 }
+    }
+    if (engineState === 'Off') {
+      return { path: window.google.maps.SymbolPath.CIRCLE, scale, fillColor: '#64748b', fillOpacity: 1, strokeColor: '#1e293b', strokeWeight: selected ? 3 : 2 }
+    }
+    if (engineState === 'Idle' || (speedKph ?? 0) <= 3) {
+      return { path: window.google.maps.SymbolPath.CIRCLE, scale, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: '#92400e', strokeWeight: selected ? 3 : 2 }
+    }
+    // On + moving — directional arrow
+    return {
+      path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+      scale: selected ? 6 : 5,
+      fillColor: '#16a34a',
+      fillOpacity: 1,
+      strokeColor: '#14532d',
+      strokeWeight: selected ? 3 : 2,
+      rotation: heading ?? 0,
+    }
+  }
+
+  // ── Helper: update or create a single marker from a realtime row ─────────
+  function updateMarkerForVehicle(row: VehicleRealtime) {
+    const map = mapInstanceRef.current
+    if (!map || !window.google?.maps || !row.vehicle_db_id) return
+    if (row.latitude == null || row.longitude == null) return
+
+    const position = { lat: Number(row.latitude), lng: Number(row.longitude) }
+    const staleCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const stale = !row.location_time || row.location_time < staleCutoff
+    const isSelected = selectedVehicleId === row.vehicle_db_id
+    const icon = getMarkerIcon(row.engine_state, row.speed, row.heading, stale, isSelected)
+
+    const existing = markerMapRef.current.get(row.vehicle_db_id)
+    if (existing) {
+      existing.setPosition(position)
+      existing.setIcon(icon)
+    } else {
+      const marker = new window.google.maps.Marker({
+        position,
+        map,
+        title: row.name ?? `Vehicle ${row.vehicle_db_id}`,
+        icon,
+      })
+      marker.addListener('click', () => setSelectedVehicleId(row.vehicle_db_id!))
+      markerMapRef.current.set(row.vehicle_db_id, marker)
+      markersRef.current.push(marker)
+    }
+  }
+
+  // ── Draw polylines on route change; seed initial markers from API data ───
   useEffect(() => {
     const map = mapInstanceRef.current
     if (!map || !window.google?.maps) return
 
-    markersRef.current.forEach((marker) => marker.setMap(null))
-    markersRef.current = []
+    // Redraw polylines (routes change less frequently)
     polylinesRef.current.forEach((line) => line.setMap(null))
     polylinesRef.current = []
 
@@ -229,68 +327,53 @@ export default function LiveOperationsPanel({
           map,
         })
         polylinesRef.current.push(polyline)
-        route.routePolyline.forEach((pt) => {
-          bounds.extend(pt)
-          hasBounds = true
+        route.routePolyline.forEach((pt) => { bounds.extend(pt); hasBounds = true })
+      }
+    })
+
+    // Seed markers from API data for vehicles not yet in realtimeVehiclesRef
+    // (Realtime will take over updates once the first poller write arrives)
+    const allApiVehicles = [
+      ...visibleAssignedVehicles.map((v) => ({ ...v, isAssigned: true })),
+      ...visibleIdleVehicles.map((v) => ({ ...v, isAssigned: false })),
+    ]
+    const staleCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
+    allApiVehicles.forEach((vehicle) => {
+      if (vehicle.telematics?.latitude == null || vehicle.telematics?.longitude == null) return
+      const position = { lat: Number(vehicle.telematics.latitude), lng: Number(vehicle.telematics.longitude) }
+      const stale = !vehicle.telematics?.telematics_timestamp || vehicle.telematics.telematics_timestamp < staleCutoff
+      const isSelected = selectedVehicleId === vehicle.id
+      // Use realtime data if already received, otherwise fall back to API data
+      const rt = realtimeVehiclesRef.current.get(vehicle.id)
+      const engineState = (rt?.engine_state) ?? (vehicle.isAssigned ? 'On' : 'Off')
+      const speedKph = rt?.speed ?? vehicle.telematics?.speed_kph ?? null
+      const heading = rt?.heading ?? null
+      const icon = getMarkerIcon(engineState, speedKph, heading, stale, isSelected)
+
+      const existing = markerMapRef.current.get(vehicle.id)
+      if (existing) {
+        existing.setPosition(position)
+        existing.setIcon(icon)
+      } else {
+        const marker = new window.google.maps.Marker({
+          position,
+          map,
+          title: vehicle.vehicle_identifier || vehicle.registration || `Vehicle ${vehicle.id}`,
+          icon,
         })
+        marker.addListener('click', () => setSelectedVehicleId(vehicle.id))
+        markerMapRef.current.set(vehicle.id, marker)
+        markersRef.current.push(marker)
       }
-    })
-
-    visibleAssignedVehicles.forEach((vehicle) => {
-      if (vehicle.telematics?.latitude == null || vehicle.telematics?.longitude == null) return
-      const position = {
-        lat: Number(vehicle.telematics.latitude),
-        lng: Number(vehicle.telematics.longitude),
-      }
-      const marker = new window.google.maps.Marker({
-        position,
-        map,
-        title: vehicle.vehicle_identifier || vehicle.registration || `Vehicle ${vehicle.id}`,
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: selectedVehicleId === vehicle.id ? 10 : 8,
-          fillColor: '#16a34a',
-          fillOpacity: 1,
-          strokeColor: '#14532d',
-          strokeWeight: selectedVehicleId === vehicle.id ? 3 : 2,
-        },
-      })
-      marker.addListener('click', () => setSelectedVehicleId(vehicle.id))
-      markersRef.current.push(marker)
       bounds.extend(position)
       hasBounds = true
     })
 
-    visibleIdleVehicles.forEach((vehicle) => {
-      if (vehicle.telematics?.latitude == null || vehicle.telematics?.longitude == null) return
-      const position = {
-        lat: Number(vehicle.telematics.latitude),
-        lng: Number(vehicle.telematics.longitude),
-      }
-      const marker = new window.google.maps.Marker({
-        position,
-        map,
-        title: vehicle.vehicle_identifier || vehicle.registration || `Vehicle ${vehicle.id}`,
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: selectedVehicleId === vehicle.id ? 9 : 7,
-          fillColor: '#64748b',
-          fillOpacity: 1,
-          strokeColor: '#1e293b',
-          strokeWeight: selectedVehicleId === vehicle.id ? 3 : 2,
-        },
-      })
-      marker.addListener('click', () => setSelectedVehicleId(vehicle.id))
-      markersRef.current.push(marker)
-      bounds.extend(position)
-      hasBounds = true
-    })
-
-    if (hasBounds) {
+    // Only fitBounds on very first data load
+    if (hasBounds && !fitBoundsDoneRef.current) {
       map.fitBounds(bounds)
-    } else {
-      map.setCenter({ lat: 54, lng: -2 })
-      map.setZoom(6)
+      fitBoundsDoneRef.current = true
     }
   }, [selectedVehicleId, visibleRoutes, visibleAssignedVehicles, visibleIdleVehicles])
 
@@ -341,7 +424,7 @@ export default function LiveOperationsPanel({
       <CardContent className={`pt-4 space-y-4 ${isFullScreen ? 'flex flex-1 flex-col' : ''}`}>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Active Routes" value={cards?.activeRoutes ?? 0} />
-          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="En Route" value={cards?.vehiclesEnRoute ?? 0} />
+          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="On Run" value={cards?.vehiclesOnRun ?? 0} />
           <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idle" value={cards?.vehiclesIdle ?? 0} />
           <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Update" value={cards?.noRecentLocationUpdate ?? 0} />
           <StatChip label="Mileage Today" value={`${cards?.totalMileageTodayKm ?? 0} km`} />
