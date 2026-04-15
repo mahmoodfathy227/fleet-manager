@@ -87,6 +87,10 @@ export default function LiveOperationsPanel({
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null)
   const isFullScreen = mode === 'full-screen'
 
+  useEffect(() => {
+    console.debug('[fleet-dashboard] LiveOperationsPanel mount', { mode })
+  }, [mode])
+
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
@@ -335,18 +339,16 @@ export default function LiveOperationsPanel({
         </div>
       </CardHeader>
       <CardContent className={`pt-4 space-y-4 ${isFullScreen ? 'flex flex-1 flex-col' : ''}`}>
-        {!isFullScreen && (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-            <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Active Routes" value={cards?.activeRoutes ?? 0} />
-            <StatChip icon={<Car className="h-3.5 w-3.5" />} label="En Route" value={cards?.vehiclesEnRoute ?? 0} />
-            <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idle" value={cards?.vehiclesIdle ?? 0} />
-            <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Update" value={cards?.noRecentLocationUpdate ?? 0} />
-            <StatChip label="Mileage Today" value={`${cards?.totalMileageTodayKm ?? 0} km`} />
-            <StatChip label="Mileage Week" value={`${cards?.totalMileageThisWeekKm ?? 0} km`} />
-            <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Today" value={`${cards?.fuelUsedTodayLiters ?? 0} L`} />
-            <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Week" value={`${cards?.fuelUsedThisWeekLiters ?? 0} L`} />
-          </div>
-        )}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Active Routes" value={cards?.activeRoutes ?? 0} />
+          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="En Route" value={cards?.vehiclesEnRoute ?? 0} />
+          <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idle" value={cards?.vehiclesIdle ?? 0} />
+          <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Update" value={cards?.noRecentLocationUpdate ?? 0} />
+          <StatChip label="Mileage Today" value={`${cards?.totalMileageTodayKm ?? 0} km`} />
+          <StatChip label="Mileage Week" value={`${cards?.totalMileageThisWeekKm ?? 0} km`} />
+          <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Today" value={`${cards?.fuelUsedTodayLiters ?? 0} L`} />
+          <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Week" value={`${cards?.fuelUsedThisWeekLiters ?? 0} L`} />
+        </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Legend color="bg-blue-500" text="Active route polyline" />
@@ -393,15 +395,15 @@ export default function LiveOperationsPanel({
         )}
 
         {loading ? (
-          <div className="h-[420px] rounded-lg border bg-slate-50 flex items-center justify-center text-slate-500">
+          <div className={`${mapHeightClass} w-full rounded-lg border bg-slate-50 flex items-center justify-center text-slate-500`}>
             Loading live operations...
           </div>
         ) : error ? (
-          <div className="h-[420px] rounded-lg border bg-rose-50 flex items-center justify-center text-rose-700">
+          <div className={`${mapHeightClass} w-full rounded-lg border bg-rose-50 flex items-center justify-center text-rose-700`}>
             {error}
           </div>
         ) : !apiKey ? (
-          <div className="h-[420px] rounded-lg border bg-amber-50 flex items-center justify-center text-amber-800">
+          <div className={`${mapHeightClass} w-full rounded-lg border bg-amber-50 flex items-center justify-center text-amber-800`}>
             Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to display the live map.
           </div>
         ) : (
@@ -469,52 +471,50 @@ export default function LiveOperationsPanel({
           </Link>
         )}
 
-        {!isFullScreen && (
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs font-semibold text-slate-700 mb-2">Active Routes</p>
-              <div className="space-y-2 max-h-48 overflow-auto">
-                {visibleRoutes.length === 0 ? (
-                  <p className="text-xs text-slate-500">No active routes.</p>
-                ) : (
-                  visibleRoutes.map((route, index) => (
-                    <div key={`active-${route.routeId}-${index}`} className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
-                      <div>
-                        <Link href={`/dashboard/routes/${route.routeId}`} className="font-semibold text-slate-800 hover:text-primary">
-                          {route.routeNumber || `Route ${route.routeId}`}
-                        </Link>
-                        <p className="text-slate-500">{route.schoolName || 'No school linked'}</p>
-                      </div>
-                      {route.livePosition?.stale ? (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Stale</span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Live</span>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs font-semibold text-slate-700 mb-2">Completed Today</p>
-              <div className="space-y-2 max-h-48 overflow-auto">
-                {(data?.map.completedRoutes || []).length === 0 ? (
-                  <p className="text-xs text-slate-500">No completed sessions today.</p>
-                ) : (
-                  (data?.map.completedRoutes || []).map((item, index) => (
-                    <div key={`completed-${item.id}-${item.route_id}-${item.session_type ?? ''}-${index}`} className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
-                      <Link href={`/dashboard/routes/${item.route_id}`} className="text-slate-700 hover:text-primary">
-                        Route {item.route_id}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="text-xs font-semibold text-slate-700 mb-2">Active Routes</p>
+            <div className="space-y-2 max-h-48 overflow-auto">
+              {visibleRoutes.length === 0 ? (
+                <p className="text-xs text-slate-500">No active routes.</p>
+              ) : (
+                visibleRoutes.map((route, index) => (
+                  <div key={`active-${route.routeId}-${index}`} className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
+                    <div>
+                      <Link href={`/dashboard/routes/${route.routeId}`} className="font-semibold text-slate-800 hover:text-primary">
+                        {route.routeNumber || `Route ${route.routeId}`}
                       </Link>
-                      <span className="text-slate-500">{item.session_type || '—'}</span>
+                      <p className="text-slate-500">{route.schoolName || 'No school linked'}</p>
                     </div>
-                  ))
-                )}
-              </div>
+                    {route.livePosition?.stale ? (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Stale</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Live</span>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
-        )}
+
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="text-xs font-semibold text-slate-700 mb-2">Completed Today</p>
+            <div className="space-y-2 max-h-48 overflow-auto">
+              {(data?.map.completedRoutes || []).length === 0 ? (
+                <p className="text-xs text-slate-500">No completed sessions today.</p>
+              ) : (
+                (data?.map.completedRoutes || []).map((item, index) => (
+                  <div key={`completed-${item.id}-${item.route_id}-${item.session_type ?? ''}-${index}`} className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
+                    <Link href={`/dashboard/routes/${item.route_id}`} className="text-slate-700 hover:text-primary">
+                      Route {item.route_id}
+                    </Link>
+                    <span className="text-slate-500">{item.session_type || '—'}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )

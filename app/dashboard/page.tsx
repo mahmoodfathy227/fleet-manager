@@ -1,11 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { Suspense } from 'react'
 import Link from 'next/link'
-import LiveOperationsPanel from './LiveOperationsPanel'
 import {
   Users, Car, School, Route, AlertCircle, UserCheck, MapPinned,
   ParkingCircle, Calendar, XCircle, Activity,
-  TrendingUp, ArrowRight, Clock, Zap, Target, Sparkles
+  TrendingUp, ArrowRight, Clock, Zap, Target, Flame, BellRing,
 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
@@ -144,6 +143,23 @@ async function getRecentIncidents() {
   return data || []
 }
 
+async function getRecentRouteNotifications() {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('id, notification_type, status, created_at')
+    .in('notification_type', ['vehicle_breakdown', 'driver_tardiness'])
+    .order('created_at', { ascending: false })
+    .limit(4)
+
+  if (error) {
+    console.debug('[fleet-dashboard] getRecentRouteNotifications failed', error.message)
+    return []
+  }
+  console.debug('[fleet-dashboard] getRecentRouteNotifications', { count: data?.length ?? 0 })
+  return data || []
+}
+
 // ============================================================================
 // DASHBOARD UI
 // ============================================================================
@@ -155,6 +171,10 @@ function LoadingSkeleton() {
         {[...Array(4)].map((_, i) => (
           <div key={i} className="h-28 rounded-2xl bg-slate-200" />
         ))}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="h-56 rounded-2xl bg-slate-200" />
+        <div className="h-56 rounded-2xl bg-slate-200" />
       </div>
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="lg:col-span-8 h-64 rounded-2xl bg-slate-200" />
@@ -168,8 +188,14 @@ async function DashboardContent() {
   const stats = await getDashboardStats()
   const activities = await getRecentActivities()
   const incidents = await getRecentIncidents()
+  const routeNotifications = await getRecentRouteNotifications()
+
+  console.debug('[fleet-dashboard] home: live map moved to /dashboard/live-map')
 
   const totalAlerts = stats.incidents + stats.employeeExpired + stats.vehicleExpired + stats.vor + stats.flaggedEmployees
+
+  console.debug('[fleet-dashboard] home: route updates card', { count: routeNotifications.length })
+  console.debug('[fleet-dashboard] home: Urgent Actions card is UI-only (logic TBD)')
 
   return (
     <div className="flex flex-col gap-4 min-h-[calc(100vh-120px)]">
@@ -232,7 +258,75 @@ async function DashboardContent() {
         </div>
       </div>
 
-      <LiveOperationsPanel />
+      {/* Urgent actions + Route updates (same row, same card style as incidents / action required) */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 flex items-center justify-center">
+                <Flame className="h-5 w-5 text-white" />
+              </div>
+              <h3 className="font-semibold text-slate-800">Urgent Actions</h3>
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center min-h-[200px] px-5 py-10">
+            <p className="text-center text-sm text-slate-400">Urgent actions will be shown here</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-500 flex items-center justify-center">
+                <BellRing className="h-5 w-5 text-white" />
+              </div>
+              <h3 className="font-semibold text-slate-800">Route Updates</h3>
+            </div>
+            <Link href="/dashboard/route-activity" className="text-sm text-primary hover:text-primary/80 font-medium flex items-center gap-1">
+              View all <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-100 flex-1 overflow-y-auto min-h-[200px]">
+            {routeNotifications.length === 0 ? (
+              <div className="p-8 text-center flex flex-col items-center justify-center">
+                <Route className="h-8 w-8 text-slate-300 mb-2" />
+                <p className="text-slate-600 font-medium text-sm">No recent route alerts</p>
+                <p className="text-xs text-slate-400 mt-1">Breakdowns and tardiness appear here</p>
+              </div>
+            ) : (
+              routeNotifications.map((n: { id: number; notification_type: string; status: string; created_at: string }) => {
+                const label =
+                  n.notification_type === 'vehicle_breakdown'
+                    ? 'Vehicle breakdown'
+                    : n.notification_type === 'driver_tardiness'
+                      ? 'Driver tardiness'
+                      : n.notification_type.replace(/_/g, ' ')
+                const statusClass =
+                  n.status === 'pending'
+                    ? 'bg-amber-100 text-amber-700'
+                    : n.status === 'resolved'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-slate-100 text-slate-600'
+                return (
+                  <Link
+                    key={n.id}
+                    href="/dashboard/route-activity"
+                    className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-800 truncate">{label}</p>
+                      <p className="text-sm text-slate-400">{formatDateTime(n.created_at)}</p>
+                    </div>
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize shrink-0 ${statusClass}`}>
+                      {n.status}
+                    </span>
+                  </Link>
+                )
+              })
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Row 2: Main Grid - grows to fill space */}
       <div className="grid gap-4 lg:grid-cols-12 flex-1">

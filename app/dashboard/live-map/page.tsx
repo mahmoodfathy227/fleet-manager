@@ -2,6 +2,8 @@ import LiveOperationsPanel from '@/app/dashboard/LiveOperationsPanel'
 import { MapPinned } from 'lucide-react'
 
 export default function LiveMapPage() {
+  console.debug('[fleet-dashboard] live-map: full LiveOperationsPanel (map + details)')
+
   return (
     <div className="space-y-5 max-w-[1800px] mx-auto">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
