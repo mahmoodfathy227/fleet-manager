@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ConfirmDeleteCard } from '@/components/ui/ConfirmDeleteCard'
-import { ArrowLeft, Trash2 } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 export default function DeleteIncidentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,25 +22,14 @@ export default function DeleteIncidentPage({ params }: { params: Promise<{ id: s
     async function loadData() {
       const { id } = await params
 
-      // Check permissions first - only super admin can delete
+      // Any signed-in user may delete incidents (RLS on Supabase still applies).
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (!authUser) {
         setUnauthorized(true)
         setCheckingPermissions(false)
         return
       }
-
-      const { data: userData } = await supabase
-        .from('users')
-        .select('id, role')
-        .eq('email', authUser.email)
-        .maybeSingle()
-
-      if (!userData || userData.role !== 'super_admin') {
-        setUnauthorized(true)
-        setCheckingPermissions(false)
-        return
-      }
+      console.debug('[DeleteIncidentPage] signed-in user loading delete flow', { id })
 
       // Load incident
       const { data: incidentData, error: incidentError } = await supabase
@@ -68,9 +57,22 @@ export default function DeleteIncidentPage({ params }: { params: Promise<{ id: s
     const { id } = await params
 
     try {
-      // Delete related records first
-      await supabase.from('incident_employees').delete().eq('incident_id', id)
-      await supabase.from('incident_passengers').delete().eq('incident_id', id)
+      const incidentIdNum = parseInt(String(id), 10)
+
+      // TR5/TR6/TR7 and other rows stored on documents (no FK cascade from incidents)
+      const { error: docsErr } = await supabase
+        .from('documents')
+        .delete()
+        .eq('owner_type', 'incident')
+        .eq('owner_id', incidentIdNum)
+      if (docsErr) throw docsErr
+
+      const { error: empErr } = await supabase.from('incident_employees').delete().eq('incident_id', id)
+      if (empErr) throw empErr
+      const { error: paxErr } = await supabase.from('incident_passengers').delete().eq('incident_id', id)
+      if (paxErr) throw paxErr
+
+      console.debug('[DeleteIncidentPage] related rows removed, deleting incident', { id: incidentIdNum })
 
       // Delete the incident
       const { error: deleteError } = await supabase
@@ -124,8 +126,8 @@ export default function DeleteIncidentPage({ params }: { params: Promise<{ id: s
         <Card>
           <CardContent className="pt-6">
             <div className="text-center py-8">
-              <h2 className="text-2xl font-bold text-red-600 mb-2">Access Denied</h2>
-              <p className="text-gray-600">Only super administrators can delete incidents.</p>
+              <h2 className="text-2xl font-bold text-red-600 mb-2">Sign in required</h2>
+              <p className="text-gray-600">You must be signed in to delete incidents.</p>
             </div>
           </CardContent>
         </Card>
@@ -164,7 +166,7 @@ export default function DeleteIncidentPage({ params }: { params: Promise<{ id: s
           'The incident record',
           'All linked employees and passengers',
           'All incident notes and attachments',
-          'Any TR5/TR7 form data linked to this incident',
+          'Any TR5/TR6/TR7 form data linked to this incident',
         ]}
         confirmLabel="Yes, Delete Incident"
         onConfirm={handleDelete}

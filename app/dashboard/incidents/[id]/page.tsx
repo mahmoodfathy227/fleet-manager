@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ArrowLeft, ExternalLink, Users, UserCog, Car, MapPin } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
+import { IncidentDeleteConfirmTrigger } from '@/app/dashboard/incidents/IncidentDeleteConfirmTrigger'
 import { notFound } from 'next/navigation'
 import IncidentToggleButton from './IncidentToggleButton'
 import IncidentDocuments from './IncidentDocuments'
@@ -187,7 +188,6 @@ export default async function ViewIncidentPage({ params }: { params: { id: strin
 
   const currentUser = await getCurrentUser()
   const canEdit = currentUser && incident.created_by === currentUser.id
-  const canDelete = currentUser && currentUser.role === 'super_admin'
 
   return (
     <div className="space-y-4">
@@ -214,13 +214,7 @@ export default async function ViewIncidentPage({ params }: { params: { id: strin
               </Button>
             </Link>
           )}
-          {canDelete && (
-            <Link href={`/dashboard/incidents/${incident.id}/delete`}>
-              <Button className="bg-red-600 text-white hover:bg-red-700">
-                Delete
-              </Button>
-            </Link>
-          )}
+          <IncidentDeleteConfirmTrigger incidentId={incident.id} placement="header" />
         </div>
       </div>
 

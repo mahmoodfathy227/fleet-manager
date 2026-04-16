@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { Plus, Eye, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
+import { IncidentDeleteConfirmTrigger } from './IncidentDeleteConfirmTrigger'
 import { IncidentSearchFilters } from './IncidentSearchFilters'
 
 async function getIncidents(filters?: { routeSessionId?: string; search?: string; status?: string }) {
@@ -130,11 +131,15 @@ async function IncidentsTable({
                 </TableCell>
                 <TableCell className="text-sm text-slate-500">{formatDateTime(incident.reported_at)}</TableCell>
                 <TableCell>
-                  <Link href={`/dashboard/incidents/${incident.id}`} prefetch={true}>
-                    <Button variant="ghost" size="sm" className="text-slate-500 hover:text-primary hover:bg-primary/10">
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </Link>
+                  <div className="flex items-center gap-1">
+                    <Link href={`/dashboard/incidents/${incident.id}`} prefetch={true}>
+                      <Button variant="ghost" size="sm" className="text-slate-500 hover:text-primary hover:bg-primary/10">
+                        <Eye className="h-4 w-4" />
+                        <span className="sr-only">View incident {incident.id}</span>
+                      </Button>
+                    </Link>
+                    <IncidentDeleteConfirmTrigger incidentId={incident.id} placement="table" />
+                  </div>
                 </TableCell>
               </TableRow>
             ))

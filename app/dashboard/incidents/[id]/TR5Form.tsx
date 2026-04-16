@@ -1,14 +1,32 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import { FileText, Save, CheckCircle, AlertCircle, FileDown } from 'lucide-react'
+import { FileText, Save, CheckCircle, AlertCircle, FileDown, Trash2, Upload } from 'lucide-react'
 import { exportHTMLToPDF } from '@/lib/utils/pdfExport'
+
+const TR5_MAX_PHOTO_BYTES = 8 * 1024 * 1024
+
+export type Tr5PhotoAttachment = {
+  id: string
+  fileName: string
+  mimeType: string
+  dataUrl: string
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+}
 
 interface TR5FormProps {
   incident: {
@@ -61,9 +79,15 @@ interface TR5FormProps {
     name: string | null
     tasNumber: string | null
   } | null
+  isDraft?: boolean
 }
 
-export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) {
+export type TR5FormHandle = { getFormPayload: () => Record<string, unknown> }
+
+const TR5Form = forwardRef<TR5FormHandle, TR5FormProps>(function TR5Form(
+  { incident, driverInfo, paInfo, isDraft = false },
+  ref
+) {
   const router = useRouter()
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
@@ -86,16 +110,83 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
     passengersInvolved: incident.incident_passengers?.map(ip => ip.passengers?.full_name).filter(Boolean).join(', ') || '',
     description: incident.description || '',
     photosAttached: false,
+    photoAttachments: [] as Tr5PhotoAttachment[],
     personCompletingForm: '',
     witnessName: '',
     witnessSignature: '',
   })
 
+  /** Draft + normal: action buttons use TR5 field completeness (not the parent create form). */
+  const tr5RequiredComplete = useMemo(() => {
+    const core = Boolean(
+      formData.dateOfIncident?.trim() &&
+        formData.timeOfIncident?.trim() &&
+        formData.description?.trim() &&
+        formData.personCompletingForm?.trim() &&
+        formData.driverName?.trim() &&
+        formData.vehicleReg?.trim()
+    )
+    const photosOk = !formData.photosAttached || formData.photoAttachments.length > 0
+    return core && photosOk
+  }, [
+    formData.dateOfIncident,
+    formData.timeOfIncident,
+    formData.description,
+    formData.personCompletingForm,
+    formData.driverName,
+    formData.vehicleReg,
+    formData.photosAttached,
+    formData.photoAttachments.length,
+  ])
+
+  useEffect(() => {
+    if (isDraft) console.debug('[TR5Form] tr5RequiredComplete', tr5RequiredComplete)
+  }, [isDraft, tr5RequiredComplete])
+
+  useImperativeHandle(ref, () => ({ getFormPayload: () => formData }), [formData])
+
   // Load saved TR5 form data if it exists
   useEffect(() => {
-    loadSavedFormData()
+    if (isDraft || incident.id === 0) {
+      setLoading(false)
+      console.debug('[TR5Form] draft mode: skip documents load')
+      return
+    }
+    void loadSavedFormData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incident.id])
+  }, [incident.id, isDraft])
+
+  useEffect(() => {
+    if (!isDraft) return
+    setFormData((prev) => ({
+      ...prev,
+      description: incident.description ?? prev.description,
+      dateOfIncident: incident.reported_at ? new Date(incident.reported_at).toISOString().split('T')[0] : prev.dateOfIncident,
+      timeOfIncident: incident.reported_at ? new Date(incident.reported_at).toTimeString().slice(0, 5) : prev.timeOfIncident,
+      vehicleReg:
+        incident.vehicles?.registration ||
+        incident.vehicles?.plate_number ||
+        incident.vehicles?.vehicle_identifier ||
+        prev.vehicleReg,
+      passengersInvolved:
+        incident.incident_passengers?.map((ip) => ip.passengers?.full_name).filter(Boolean).join(', ') ||
+        prev.passengersInvolved,
+      driverName: driverInfo?.name ?? prev.driverName,
+      paName: paInfo?.name ?? prev.paName,
+      driverTASNumber: driverInfo?.tasNumber ?? prev.driverTASNumber,
+      paTASNumber: paInfo?.tasNumber ?? prev.paTASNumber,
+    }))
+  }, [
+    isDraft,
+    incident.description,
+    incident.reported_at,
+    incident.vehicles,
+    incident.incident_passengers,
+    driverInfo?.name,
+    driverInfo?.tasNumber,
+    paInfo?.name,
+    paInfo?.tasNumber,
+  ])
 
   const loadSavedFormData = async () => {
     try {
@@ -120,7 +211,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
             : savedForm.file_url
 
           if (savedData && typeof savedData === 'object') {
-            setFormData(prev => ({
+            setFormData((prev) => ({
               ...prev,
               ...savedData,
               // Don't overwrite auto-populated fields if they're empty in saved data
@@ -129,6 +220,16 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
               vehicleReg: savedData.vehicleReg || prev.vehicleReg,
               driverTASNumber: savedData.driverTASNumber || prev.driverTASNumber,
               paTASNumber: savedData.paTASNumber || prev.paTASNumber,
+              photoAttachments: Array.isArray(savedData.photoAttachments)
+                ? savedData.photoAttachments.filter(
+                    (x: unknown) =>
+                      x &&
+                      typeof x === 'object' &&
+                      'id' in x &&
+                      'dataUrl' in x &&
+                      typeof (x as Tr5PhotoAttachment).id === 'string'
+                  )
+                : prev.photoAttachments,
             }))
           }
         } catch (parseError) {
@@ -143,10 +244,73 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
   }
 
   const handleInputChange = (field: string, value: string | boolean) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handlePhotosAttachedChange = (yes: boolean) => {
+    setFormData((prev) => ({
+      ...prev,
+      photosAttached: yes,
+      photoAttachments: yes ? prev.photoAttachments : [],
+    }))
+    if (!yes) console.debug('[TR5Form] photos set to No, cleared attachments')
+  }
+
+  const newAttachmentId = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `att-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+
+  const handlePhotoFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target
+    // Copy File[] before clearing input — clearing first empties FileList in many browsers.
+    const files = Array.from(input.files ?? [])
+    input.value = ''
+    if (files.length === 0) return
+    setSaveError(null)
+    const additions: Tr5PhotoAttachment[] = []
+    try {
+      for (const file of files) {
+        if (file.size > TR5_MAX_PHOTO_BYTES) {
+          setSaveError(`"${file.name}" is too large (max ${TR5_MAX_PHOTO_BYTES / (1024 * 1024)} MB per file).`)
+          console.debug('[TR5Form] photo rejected (size)', { name: file.name, size: file.size })
+          return
+        }
+        const dataUrl = await readFileAsDataUrl(file)
+        additions.push({
+          id: newAttachmentId(),
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          dataUrl,
+        })
+      }
+      setFormData((prev) => ({
+        ...prev,
+        photoAttachments: [...prev.photoAttachments, ...additions],
+      }))
+      console.debug('[TR5Form] photo attachments added', { added: additions.length, names: additions.map((a) => a.fileName) })
+    } catch (err) {
+      console.error('[TR5Form] photo read error', err)
+      setSaveError('Could not read one of the selected files.')
+    }
+  }
+
+  const removePhotoAttachment = (id: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      photoAttachments: prev.photoAttachments.filter((a) => a.id !== id),
+    }))
+    console.debug('[TR5Form] photo attachment removed', { id })
   }
 
   const handleExportWord = async () => {
+    if (isDraft) {
+      setSaveError(
+        'Word export uses the server and needs a saved incident. Click Create incident at the bottom, then open the incident to export.'
+      )
+      console.debug('[TR5Form] export word: draft — user notified')
+      return
+    }
     setExporting(true)
     setSaveError(null)
 
@@ -396,6 +560,25 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
       return
     }
 
+    if (!formData.driverName?.trim() || !formData.vehicleReg?.trim()) {
+      setSaveError('Driver name and Vehicle Reg are required.')
+      return
+    }
+
+    if (formData.photosAttached && formData.photoAttachments.length === 0) {
+      setSaveError('You selected Yes for photos — please attach at least one file.')
+      console.debug('[TR5Form] save blocked: photos Yes but no attachments')
+      return
+    }
+
+    if (isDraft) {
+      setSaveError(null)
+      setSaveSuccess(true)
+      console.debug('[TR5Form] draft save acknowledged (stored when you click Create incident)')
+      setTimeout(() => setSaveSuccess(false), 3000)
+      return
+    }
+
     setSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
@@ -483,8 +666,10 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
         <div className="space-y-6">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-sm text-blue-800">
-              <strong>Note:</strong> Fields marked with <span className="text-red-500">*</span> are required. 
-              Route and driver information has been auto-populated from the incident data.
+              <strong>Note:</strong> Fields marked with <span className="text-red-500">*</span> are required.
+              {isDraft
+                ? ' Complete required fields in this form (including driver name and vehicle reg), then Save, Print, or use Create incident at the bottom to store everything.'
+                : ' Driver, PA, vehicle, and TAS fields may be prefilled from the incident — you can edit them as needed.'}
             </p>
           </div>
 
@@ -557,8 +742,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
                 required
                 value={formData.driverName}
                 onChange={(e) => handleInputChange('driverName', e.target.value)}
-                className="bg-gray-50"
-                readOnly
+                placeholder="Enter driver name"
               />
             </div>
 
@@ -568,8 +752,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
                 id="paName"
                 value={formData.paName}
                 onChange={(e) => handleInputChange('paName', e.target.value)}
-                className="bg-gray-50"
-                readOnly
+                placeholder="Enter PA name(s)"
               />
             </div>
 
@@ -582,8 +765,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
                 required
                 value={formData.vehicleReg}
                 onChange={(e) => handleInputChange('vehicleReg', e.target.value)}
-                className="bg-gray-50"
-                readOnly
+                placeholder="Vehicle registration or identifier"
               />
             </div>
 
@@ -595,8 +777,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
                 id="driverTASNumber"
                 value={formData.driverTASNumber}
                 onChange={(e) => handleInputChange('driverTASNumber', e.target.value)}
-                className="bg-gray-50"
-                readOnly
+                placeholder="Driver TAS number"
               />
             </div>
 
@@ -606,8 +787,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
                 id="paTASNumber"
                 value={formData.paTASNumber}
                 onChange={(e) => handleInputChange('paTASNumber', e.target.value)}
-                className="bg-gray-50"
-                readOnly
+                placeholder="PA TAS number(s)"
               />
             </div>
 
@@ -642,29 +822,98 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="photosAttached">Are there photos to attach to the report?</Label>
+              <Label htmlFor="photosAttached-yes">Are there photos to attach to the report?</Label>
               <div className="flex items-center gap-4">
-                <label className="flex items-center">
+                <label className="flex items-center cursor-pointer">
                   <input
+                    id="photosAttached-yes"
                     type="radio"
                     name="photosAttached"
                     checked={formData.photosAttached === true}
-                    onChange={() => handleInputChange('photosAttached', true)}
+                    onChange={() => handlePhotosAttachedChange(true)}
                     className="mr-2"
                   />
                   Yes
                 </label>
-                <label className="flex items-center">
+                <label className="flex items-center cursor-pointer">
                   <input
                     type="radio"
                     name="photosAttached"
                     checked={formData.photosAttached === false}
-                    onChange={() => handleInputChange('photosAttached', false)}
+                    onChange={() => handlePhotosAttachedChange(false)}
                     className="mr-2"
                   />
                   No
                 </label>
               </div>
+              {formData.photosAttached ? (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-slate-600">
+                      Attachments <span className="text-red-500">*</span>
+                    </span>
+                    <label htmlFor="tr5-photo-upload" className="inline-flex cursor-pointer">
+                      <input
+                        id="tr5-photo-upload"
+                        type="file"
+                        className="absolute h-px w-px overflow-hidden opacity-0"
+                        style={{ clip: 'rect(0,0,0,0)' }}
+                        accept="image/*,.pdf,.doc,.docx"
+                        multiple
+                        onChange={handlePhotoFilesChange}
+                      />
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100">
+                        <Upload className="h-4 w-4" />
+                        Upload files
+                      </span>
+                    </label>
+                    <span className="text-xs text-slate-500">Images or documents; max {TR5_MAX_PHOTO_BYTES / (1024 * 1024)} MB each.</span>
+                  </div>
+                  {formData.photoAttachments.length === 0 ? (
+                    <p className="text-sm text-amber-800">At least one file is required when you answer Yes.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {formData.photoAttachments.map((att) => {
+                        const isImage = att.mimeType.startsWith('image/')
+                        return (
+                          <li
+                            key={att.id}
+                            className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              {isImage ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={att.dataUrl}
+                                  alt=""
+                                  className="h-12 w-12 shrink-0 rounded border border-slate-200 object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] font-medium text-slate-600">
+                                  FILE
+                                </div>
+                              )}
+                              <span className="truncate font-medium text-slate-800" title={att.fileName}>
+                                {att.fileName}
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 shrink-0 gap-1 border-red-200 text-red-700 hover:bg-red-50"
+                              onClick={() => removePhotoAttachment(att.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Remove
+                            </Button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             <div className="space-y-2 md:col-span-2">
@@ -719,7 +968,11 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
               <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
               <div>
                 <h3 className="text-sm font-medium text-green-800">Success</h3>
-                <p className="text-sm text-green-700 mt-1">TR5 form saved successfully!</p>
+                <p className="text-sm text-green-700 mt-1">
+                  {isDraft
+                    ? 'Form ready — it will be stored in the database when you click Create incident.'
+                    : 'TR5 form saved successfully!'}
+                </p>
               </div>
             </div>
           )}
@@ -729,7 +982,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
               type="button"
               variant="secondary"
               onClick={handleExportWord}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr5RequiredComplete)}
             >
               {exporting ? (
                 <>Exporting...</>
@@ -744,14 +997,14 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
               type="button"
               variant="secondary"
               onClick={handlePrintForm}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr5RequiredComplete)}
             >
               Print Form
             </Button>
             <Button
               type="button"
               onClick={handleSaveForm}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr5RequiredComplete)}
             >
               {saving ? (
                 <>Saving...</>
@@ -767,5 +1020,7 @@ export default function TR5Form({ incident, driverInfo, paInfo }: TR5FormProps) 
       </CardContent>
     </Card>
   )
-}
+})
+
+export default TR5Form
 

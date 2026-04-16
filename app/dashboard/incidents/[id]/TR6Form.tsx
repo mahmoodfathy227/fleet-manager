@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -21,9 +21,13 @@ interface TR6FormProps {
       plate_number: string | null
     } | null
   }
+  /** When true, skip DB load/save/export; parent reads JSON via ref on Create. */
+  isDraft?: boolean
 }
 
-export default function TR6Form({ incident }: TR6FormProps) {
+export type TR6FormHandle = { getFormPayload: () => Record<string, unknown> }
+
+const TR6Form = forwardRef<TR6FormHandle, TR6FormProps>(function TR6Form({ incident, isDraft = false }, ref) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -56,11 +60,48 @@ export default function TR6Form({ incident }: TR6FormProps) {
     other_driver_comments: '',
   })
 
+  const tr6RequiredComplete = useMemo(() => {
+    return Boolean(
+      formData.other_driver_name?.trim() &&
+        formData.damage_description?.trim() &&
+        formData.accident_location?.trim() &&
+        formData.accident_datetime?.trim() &&
+        formData.other_vehicle_registration?.trim()
+    )
+  }, [
+    formData.other_driver_name,
+    formData.damage_description,
+    formData.accident_location,
+    formData.accident_datetime,
+    formData.other_vehicle_registration,
+  ])
+
+  useEffect(() => {
+    if (isDraft) console.debug('[TR6Form] tr6RequiredComplete', tr6RequiredComplete)
+  }, [isDraft, tr6RequiredComplete])
+
+  useImperativeHandle(ref, () => ({ getFormPayload: () => formData }), [formData])
+
   // Load saved TR6 form data if it exists
   useEffect(() => {
-    loadSavedFormData()
+    if (isDraft || incident.id === 0) {
+      setLoading(false)
+      console.debug('[TR6Form] draft mode: skip documents load')
+      return
+    }
+    void loadSavedFormData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incident.id])
+  }, [incident.id, isDraft])
+
+  useEffect(() => {
+    if (!isDraft) return
+    setFormData((prev) => ({
+      ...prev,
+      damage_description: incident.description ?? prev.damage_description,
+      accident_location: incident.location ?? prev.accident_location,
+      accident_datetime: formatDateTime(incident.reported_at) || prev.accident_datetime,
+    }))
+  }, [isDraft, incident.description, incident.location, incident.reported_at])
 
   const loadSavedFormData = async () => {
     try {
@@ -108,6 +149,21 @@ export default function TR6Form({ incident }: TR6FormProps) {
   }
 
   const handleSaveForm = async () => {
+    if (!tr6RequiredComplete) {
+      setSaveError(
+        'Please complete: other driver name, damage description, accident location, accident date & time, and other vehicle registration.'
+      )
+      console.debug('[TR6Form] save blocked: required fields incomplete')
+      return
+    }
+
+    if (isDraft) {
+      setSaveError(null)
+      setSaveSuccess(true)
+      console.debug('[TR6Form] draft save acknowledged (stored when you click Create incident)')
+      setTimeout(() => setSaveSuccess(false), 3000)
+      return
+    }
     setSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
@@ -175,6 +231,14 @@ export default function TR6Form({ incident }: TR6FormProps) {
   }
 
   const handleExportWord = async () => {
+    if (isDraft) {
+      setSaveError(
+        'Word export uses the server and needs a saved incident. Click Create incident at the bottom, then open the incident to export.'
+      )
+      console.debug('[TR6Form] export word: draft — user notified')
+      return
+    }
+
     setExporting(true)
     setSaveError(null)
 
@@ -412,7 +476,11 @@ export default function TR6Form({ incident }: TR6FormProps) {
               <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
               <div>
                 <h3 className="text-sm font-medium text-green-800">Success</h3>
-                <p className="text-sm text-green-700 mt-1">TR6 form saved successfully!</p>
+                <p className="text-sm text-green-700 mt-1">
+                  {isDraft
+                    ? 'Form ready — it will be stored when you click Create incident.'
+                    : 'TR6 form saved successfully!'}
+                </p>
               </div>
             </div>
           )}
@@ -422,7 +490,7 @@ export default function TR6Form({ incident }: TR6FormProps) {
               type="button"
               variant="secondary"
               onClick={handleExportWord}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr6RequiredComplete)}
             >
               {exporting ? (
                 <>Exporting...</>
@@ -436,7 +504,7 @@ export default function TR6Form({ incident }: TR6FormProps) {
             <Button
               type="button"
               onClick={handleSaveForm}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr6RequiredComplete)}
             >
               {saving ? (
                 <>Saving...</>
@@ -452,5 +520,7 @@ export default function TR6Form({ incident }: TR6FormProps) {
       </CardContent>
     </Card>
   )
-}
+})
+
+export default TR6Form
 

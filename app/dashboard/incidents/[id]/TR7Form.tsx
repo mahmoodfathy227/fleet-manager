@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -38,9 +38,15 @@ interface TR7FormProps {
     name: string | null
     tasNumber: string | null
   } | null
+  isDraft?: boolean
 }
 
-export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) {
+export type TR7FormHandle = { getFormPayload: () => Record<string, unknown> }
+
+const TR7Form = forwardRef<TR7FormHandle, TR7FormProps>(function TR7Form(
+  { incident, driverInfo, paInfo, isDraft = false },
+  ref
+) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -92,11 +98,68 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
     signature_date: formatDate(new Date().toISOString()),
   })
 
+  const tr7RequiredComplete = useMemo(() => {
+    return Boolean(
+      formData.incident_date?.trim() &&
+        formData.incident_time?.trim() &&
+        formData.passenger_names?.trim() &&
+        formData.exit_location?.trim() &&
+        formData.vehicle_number?.trim() &&
+        formData.tas_staff_name?.trim() &&
+        formData.form_completed_by?.trim()
+    )
+  }, [
+    formData.incident_date,
+    formData.incident_time,
+    formData.passenger_names,
+    formData.exit_location,
+    formData.vehicle_number,
+    formData.tas_staff_name,
+    formData.form_completed_by,
+  ])
+
+  useEffect(() => {
+    if (isDraft) console.debug('[TR7Form] tr7RequiredComplete', tr7RequiredComplete)
+  }, [isDraft, tr7RequiredComplete])
+
+  useImperativeHandle(ref, () => ({ getFormPayload: () => formData }), [formData])
+
   // Load saved TR7 form data if it exists
   useEffect(() => {
-    loadSavedFormData()
+    if (isDraft || incident.id === 0) {
+      setLoading(false)
+      console.debug('[TR7Form] draft mode: skip documents load')
+      return
+    }
+    void loadSavedFormData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incident.id])
+  }, [incident.id, isDraft])
+
+  useEffect(() => {
+    if (!isDraft) return
+    const pn = incident.incident_passengers?.map((ip) => ip.passengers?.full_name).filter(Boolean).join(', ') || ''
+    const sn = incident.incident_passengers?.[0]?.passengers?.schools?.name || ''
+    setFormData((prev) => ({
+      ...prev,
+      incident_date: formatDate(incident.reported_at) || prev.incident_date,
+      incident_time: formatTime(incident.reported_at) || prev.incident_time,
+      school_name: sn || prev.school_name,
+      passenger_names: pn || prev.passenger_names,
+      vehicle_number:
+        incident.vehicles?.vehicle_identifier || incident.vehicles?.registration || prev.vehicle_number,
+      exit_location: incident.location ?? prev.exit_location,
+      tas_staff_name: paInfo?.name || driverInfo?.name || prev.tas_staff_name,
+      tas_report_time: formatDateTime(incident.reported_at) || prev.tas_report_time,
+    }))
+  }, [
+    isDraft,
+    incident.reported_at,
+    incident.location,
+    incident.vehicles,
+    incident.incident_passengers,
+    driverInfo?.name,
+    paInfo?.name,
+  ])
 
   const loadSavedFormData = async () => {
     try {
@@ -148,6 +211,21 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
   }
 
   const handleSaveForm = async () => {
+    if (!tr7RequiredComplete) {
+      setSaveError(
+        'Please complete: incident date & time, passenger names, exit location, vehicle number, TAS staff name, and form completed by.'
+      )
+      console.debug('[TR7Form] save blocked: required fields incomplete')
+      return
+    }
+
+    if (isDraft) {
+      setSaveError(null)
+      setSaveSuccess(true)
+      console.debug('[TR7Form] draft save acknowledged (stored when you click Create incident)')
+      setTimeout(() => setSaveSuccess(false), 3000)
+      return
+    }
     setSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
@@ -215,6 +293,14 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
   }
 
   const handleExportWord = async () => {
+    if (isDraft) {
+      setSaveError(
+        'Word export uses the server and needs a saved incident. Click Create incident at the bottom, then open the incident to export.'
+      )
+      console.debug('[TR7Form] export word: draft — user notified')
+      return
+    }
+
     setExporting(true)
     setSaveError(null)
 
@@ -524,7 +610,11 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
               <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
               <div>
                 <h3 className="text-sm font-medium text-green-800">Success</h3>
-                <p className="text-sm text-green-700 mt-1">TR7 form saved successfully!</p>
+                <p className="text-sm text-green-700 mt-1">
+                  {isDraft
+                    ? 'Form ready — it will be stored when you click Create incident.'
+                    : 'TR7 form saved successfully!'}
+                </p>
               </div>
             </div>
           )}
@@ -534,7 +624,7 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
               type="button"
               variant="secondary"
               onClick={handleExportWord}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr7RequiredComplete)}
             >
               {exporting ? (
                 <>Exporting...</>
@@ -548,7 +638,7 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
             <Button
               type="button"
               onClick={handleSaveForm}
-              disabled={saving || loading || exporting}
+              disabled={saving || loading || exporting || (isDraft && !tr7RequiredComplete)}
             >
               {saving ? (
                 <>Saving...</>
@@ -564,5 +654,7 @@ export default function TR7Form({ incident, driverInfo, paInfo }: TR7FormProps) 
       </CardContent>
     </Card>
   )
-}
+})
+
+export default TR7Form
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -13,7 +13,10 @@ import IncidentReportForms from '../IncidentReportForms'
 
 export default function EditIncidentPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => {
+    console.debug('[EditIncidentPage] stable supabase client (report forms load)')
+    return createClient()
+  }, [])
   const [loading, setLoading] = useState(false)
   const [checkingPermissions, setCheckingPermissions] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -434,7 +437,7 @@ export default function EditIncidentPage({ params }: { params: Promise<{ id: str
                   className={`flex items-center p-2 border rounded-lg cursor-pointer transition-colors ${selectedEmployees.includes(employee.id) ? 'border-[#023E8A] bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
                   onClick={() => toggleEmployee(employee.id)}
                 >
-                  <input type="checkbox" checked={selectedEmployees.includes(employee.id)} onChange={() => toggleEmployee(employee.id)} className="h-3.5 w-3.5 rounded border-slate-300 text-[#023E8A] focus:ring-[#023E8A]" />
+                  <input type="checkbox" checked={selectedEmployees.includes(employee.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleEmployee(employee.id)} className="h-3.5 w-3.5 rounded border-slate-300 text-[#023E8A] focus:ring-[#023E8A]" />
                   <span className="ml-2 text-sm text-slate-700 truncate">{employee.full_name}</span>
                 </div>
               ))}
@@ -460,7 +463,7 @@ export default function EditIncidentPage({ params }: { params: Promise<{ id: str
                   className={`flex items-center p-2 border rounded-lg cursor-pointer transition-colors ${selectedPassengers.includes(passenger.id) ? 'border-[#023E8A] bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
                   onClick={() => togglePassenger(passenger.id)}
                 >
-                  <input type="checkbox" checked={selectedPassengers.includes(passenger.id)} onChange={() => togglePassenger(passenger.id)} className="h-3.5 w-3.5 rounded border-slate-300 text-[#023E8A] focus:ring-[#023E8A]" />
+                  <input type="checkbox" checked={selectedPassengers.includes(passenger.id)} onClick={(e) => e.stopPropagation()} onChange={() => togglePassenger(passenger.id)} className="h-3.5 w-3.5 rounded border-slate-300 text-[#023E8A] focus:ring-[#023E8A]" />
                   <span className="ml-2 text-sm text-slate-700 truncate">{passenger.full_name}</span>
                 </div>
               ))}

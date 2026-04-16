@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import { FileText, Upload, X } from 'lucide-react'
+import { FileText, Trash2, Upload, X } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
 interface PassengerDocumentRow {
@@ -34,6 +34,7 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
   const [notes, setNotes] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null)
 
   const loadDocuments = async () => {
     setLoading(true)
@@ -54,7 +55,10 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
   }
 
   useEffect(() => {
-    loadDocuments()
+    console.debug('[PassengerDocumentsCard] mount / passengerId change (delete in trailing Actions column)', {
+      passengerId,
+    })
+    void loadDocuments()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [passengerId])
 
@@ -133,6 +137,37 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
     }
   }
 
+  const removeStorageObject = async (path: string | null) => {
+    if (!path || path.includes('..')) return
+    const { error: rmErr } = await supabase.storage.from('DOCUMENTS').remove([path])
+    if (rmErr) console.warn('[PassengerDocumentsCard] storage remove', path, rmErr)
+  }
+
+  const handleDeleteDocument = async (doc: PassengerDocumentRow) => {
+    const label = doc.title || doc.file_name || 'this document'
+    if (!window.confirm(`Delete “${label}”? This cannot be undone.`)) return
+    setError(null)
+    setDeletingDocId(doc.id)
+    console.debug('[PassengerDocumentsCard] delete start', { documentId: doc.id, passengerId })
+    try {
+      const { error: delErr } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', doc.id)
+        .eq('owner_type', 'passenger')
+        .eq('owner_id', passengerId)
+      if (delErr) throw delErr
+      await removeStorageObject(doc.file_path)
+      console.debug('[PassengerDocumentsCard] delete done', { documentId: doc.id })
+      await loadDocuments()
+    } catch (err: any) {
+      console.error('[PassengerDocumentsCard] delete failed', err)
+      setError(err.message || 'Delete failed')
+    } finally {
+      setDeletingDocId(null)
+    }
+  }
+
   const resolveUrl = (doc: PassengerDocumentRow) => {
     if (!doc.file_url && !doc.file_path) return null
 
@@ -167,6 +202,11 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
         </div>
       </CardHeader>
       <CardContent className="pt-6 space-y-4">
+        {error && (
+          <p className="text-sm text-red-600 rounded-md border border-red-200 bg-red-50 px-3 py-2" role="alert">
+            {error}
+          </p>
+        )}
         {showUpload && (
           <div className="space-y-3 border rounded-lg p-4">
             <div className="grid gap-3 md:grid-cols-2">
@@ -200,7 +240,6 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
                 placeholder="Any important context or notes about this document..."
               />
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex space-x-2">
               <Button onClick={handleUpload} disabled={uploading}>
                 <Upload className="h-4 w-4 mr-2" />
@@ -228,8 +267,8 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
         ) : documents.length === 0 ? (
           <div className="text-center py-8 text-sm text-gray-600">No documents uploaded yet.</div>
         ) : (
-          <div className="rounded-md border overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
+          <div className="rounded-md border overflow-x-auto">
+            <table className="min-w-[640px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Title</th>
@@ -237,11 +276,15 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">File</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Uploaded At</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Uploaded By</th>
+                  <th className="sticky right-0 z-[1] bg-gray-50 px-4 py-2 text-right text-xs font-medium text-gray-500 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)] w-[88px]">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {documents.map((doc) => {
                   const url = resolveUrl(doc)
+                  const rowLabel = doc.title || doc.file_name || 'document'
                   const uploadedByEmail = (Array.isArray(doc.users) ? (doc.users[0] as any)?.email : doc.users?.email) || '-'
                   return (
                     <tr key={doc.id}>
@@ -251,7 +294,7 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
                       </td>
                       <td className="px-4 py-2 text-sm">
                         {url ? (
-                          <a className="text-blue-600 hover:underline" href={url} target="_blank" rel="noreferrer">
+                          <a className="text-blue-600 hover:underline break-all" href={url} target="_blank" rel="noreferrer">
                             {doc.file_name || 'View'}
                           </a>
                         ) : (
@@ -260,6 +303,20 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
                       </td>
                       <td className="px-4 py-2 text-sm text-gray-500">{formatDateTime(doc.uploaded_at)}</td>
                       <td className="px-4 py-2 text-sm text-gray-500">{uploadedByEmail}</td>
+                      <td className="sticky right-0 z-[1] bg-white px-4 py-2 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)]">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          disabled={deletingDocId === doc.id}
+                          onClick={() => void handleDeleteDocument(doc)}
+                          title="Delete document"
+                          aria-label={`Delete ${rowLabel}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
                   )
                 })}
