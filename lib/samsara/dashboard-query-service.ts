@@ -21,23 +21,12 @@ function todayDateValue() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function startOfWeekIso() {
-  const d = new Date()
-  const day = d.getDay()
-  const diff = (day + 6) % 7
-  d.setDate(d.getDate() - diff)
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString()
-}
-
-
 export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
   const supabase = createServiceClient()
   const staleMinutes = Number(process.env.SAMSARA_STALE_MINUTES || 5)
   const staleCutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString()
   const todayStart = startOfDayIso()
   const todayDate = todayDateValue()
-  const weekStart = startOfWeekIso()
 
   let activeSessionQuery = supabase
     .from('route_sessions')
@@ -99,8 +88,7 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
 
   const [
     { data: routePoints },
-    { data: historyToday },
-    { data: historyWeek },
+    { data: fuelDistRows },
     locationFallbacks,
   ] =
     await Promise.all([
@@ -112,15 +100,8 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
             .order('stop_order', { ascending: true })
         : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
       supabase
-        .from('vehicle_telematics_history')
-        .select('vehicle_id, odometer_km, fuel_used_liters, telematics_timestamp')
-        .gte('telematics_timestamp', todayStart)
-        .order('telematics_timestamp', { ascending: true }),
-      supabase
-        .from('vehicle_telematics_history')
-        .select('vehicle_id, odometer_km, fuel_used_liters, telematics_timestamp')
-        .gte('telematics_timestamp', weekStart)
-        .order('telematics_timestamp', { ascending: true }),
+        .from('vehicle_fuel_distance')
+        .select('distance_today_m, fuel_today_ml, distance_week_m, fuel_week_ml, updated_at'),
       getVehicleLocationFallbacks(
         supabase as unknown as SupabaseLike,
         (allVehicles || []).map((vehicle) => Number(vehicle.id))
@@ -242,43 +223,16 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
     pointsByRouteId.set(routeId, current)
   }
 
-  function computeDistance(records: Array<Record<string, unknown>>): number {
-    const grouped = new Map<number, number[]>()
-    for (const row of records) {
-      const vehicleId = Number(row.vehicle_id)
-      const odometer = Number(row.odometer_km)
-      if (!Number.isFinite(vehicleId) || !Number.isFinite(odometer)) continue
-      const arr = grouped.get(vehicleId) || []
-      arr.push(odometer)
-      grouped.set(vehicleId, arr)
-    }
-
-    let total = 0
-    for (const values of Array.from(grouped.values())) {
-      if (values.length < 2) continue
-      total += Math.max(...values) - Math.min(...values)
-    }
-    return Number(total.toFixed(2))
-  }
-
-  function computeFuel(records: Array<Record<string, unknown>>): number {
-    const grouped = new Map<number, number[]>()
-    for (const row of records) {
-      const vehicleId = Number(row.vehicle_id)
-      const fuel = Number(row.fuel_used_liters)
-      if (!Number.isFinite(vehicleId) || !Number.isFinite(fuel)) continue
-      const arr = grouped.get(vehicleId) || []
-      arr.push(fuel)
-      grouped.set(vehicleId, arr)
-    }
-
-    let total = 0
-    for (const values of Array.from(grouped.values())) {
-      if (values.length < 2) continue
-      total += Math.max(...values) - Math.min(...values)
-    }
-    return Number(total.toFixed(2))
-  }
+  // Aggregate fleet-wide fuel & distance from the snapshot table
+  const fuelRows = fuelDistRows ?? []
+  const totalDistanceTodayM  = fuelRows.reduce((s, r) => s + Number(r.distance_today_m ?? 0), 0)
+  const totalFuelTodayMl     = fuelRows.reduce((s, r) => s + Number(r.fuel_today_ml   ?? 0), 0)
+  const totalDistanceWeekM   = fuelRows.reduce((s, r) => s + Number(r.distance_week_m  ?? 0), 0)
+  const totalFuelWeekMl      = fuelRows.reduce((s, r) => s + Number(r.fuel_week_ml     ?? 0), 0)
+  const fuelDataUpdatedAt    = fuelRows.reduce((latest, r) => {
+    const t = r.updated_at ? new Date(r.updated_at as string).getTime() : 0
+    return t > latest ? t : latest
+  }, 0)
 
   return {
     cards: {
@@ -288,10 +242,11 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
       vehiclesEngineOff: vehiclesEngineOffCount,
       vehiclesNoSignal: vehiclesNoSignalCount,
       scheduledRoutesToday: (scheduledSessions || []).length,
-      totalMileageTodayKm: computeDistance(historyToday || []),
-      totalMileageThisWeekKm: computeDistance(historyWeek || []),
-      fuelUsedTodayLiters: computeFuel(historyToday || []),
-      fuelUsedThisWeekLiters: computeFuel(historyWeek || []),
+      totalMileageTodayKm:    Number((totalDistanceTodayM  / 1000).toFixed(2)),
+      totalMileageThisWeekKm: Number((totalDistanceWeekM   / 1000).toFixed(2)),
+      fuelUsedTodayLiters:    Number((totalFuelTodayMl     / 1000).toFixed(2)),
+      fuelUsedThisWeekLiters: Number((totalFuelWeekMl      / 1000).toFixed(2)),
+      fuelDataUpdatedAt:      fuelDataUpdatedAt > 0 ? new Date(fuelDataUpdatedAt).toISOString() : null,
     },
     map: {
       activeRoutes: activeRoutes.map((route) => ({

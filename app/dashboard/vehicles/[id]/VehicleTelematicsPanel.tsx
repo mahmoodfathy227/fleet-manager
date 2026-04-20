@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { loadGoogleMapsScript } from '@/lib/google-maps-loader'
 import { CLEAN_FLEET_MAP_STYLES } from '@/lib/google-maps-style'
-import { Clock3, Fuel, Gauge, MapPin, Power, Route } from 'lucide-react'
+import { Clock3, Gauge, MapPin, Power, Route } from 'lucide-react'
 
 type VehicleTelematicsResponse = {
   vehicle: {
@@ -320,7 +320,7 @@ export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: numbe
               </Info>
               <Info label="Last Updated">
                 {displayUpdatedAt
-                  ? new Date(displayUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                  ? new Date(displayUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
                   : 'No data'}
               </Info>
               <Info label="Engine">
@@ -335,13 +335,6 @@ export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: numbe
                   {displaySpeed != null ? `${Number(displaySpeed).toFixed(1)} km/h` : 'N/A'}
                 </span>
               </Info>
-              <Info label="Odometer">{live?.odometerKm != null ? `${live.odometerKm} km` : 'N/A'}</Info>
-              <Info label="Fuel Used">
-                <span className="inline-flex items-center gap-1">
-                  <Fuel className="h-3.5 w-3.5" />
-                  {live?.fuelUsedLiters != null ? `${live.fuelUsedLiters} L` : 'N/A'}
-                </span>
-              </Info>
               <Info label="Assigned Route">
                 {data?.activeRoute ? (
                   <Link href={`/dashboard/routes/${data.activeRoute.routeId}`} className="text-primary hover:underline">
@@ -351,14 +344,20 @@ export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: numbe
                   'None'
                 )}
               </Info>
-              <Info label="Route Status">
+              <Info label="Vehicle Status">
                 {data?.activeRoute ? (
                   <span className="inline-flex items-center gap-1 text-emerald-700">
                     <Route className="h-3.5 w-3.5" />
-                    {data.activeRoute.status}
+                    En Route
                   </span>
                 ) : (
-                  'Idle'
+                  (() => {
+                    const eng = realtimeEngineState ?? (live?.ignitionOn == null ? null : live.ignitionOn ? 'On' : 'Off')
+                    if (eng === 'On') return <span className="text-amber-600">Engine On — Not Assigned</span>
+                    if (eng === 'Idle') return <span className="text-amber-500">Idling</span>
+                    if (eng === 'Off') return <span className="text-slate-500">Engine Off</span>
+                    return <span className="text-slate-400">No Signal</span>
+                  })()
                 )}
               </Info>
             </div>

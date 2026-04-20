@@ -25,6 +25,8 @@ Before proposing an `ALTER TABLE`, `CREATE TABLE`, `DROP`, or any DDL statement:
 
 ## Pre-Commit Checklist
 
+> ⛔ **NEVER stage, commit, or push code unless the user has explicitly tested the change and explicitly asked you to commit.** Do not suggest a commit message, do not run `git add`, do not run `git commit`, do not run `git push` — until the user says so. Finishing implementation is not a trigger to commit. A passing build is not a trigger to commit. Only an explicit instruction from the user is.
+
 **Before committing and pushing any code change, you MUST run a production build and verify it succeeds with zero errors.**
 
 ```bash
@@ -116,6 +118,14 @@ This project was built incrementally without a consistent review process. Before
 - API routes may exist but accept wrong parameters, return wrong shapes, or have no RLS backing
 - UI components may reference columns, tables, or RPCs that don't exist in production
 - Multiple competing implementations may exist for the same feature (e.g. two auth systems, two compliance document systems, duplicate notification tables)
+
+---
+
+## External API References
+
+| Service | Reference |
+|---------|----------|
+| **Samsara API** | [Samsara Public Postman Workspace](https://www.postman.com/samsara-api/samsara-api-s-public-workspace/documentation/eso9w2v/samsara-api?sideView=agentMode) — use this as the authoritative reference for all Samsara endpoint shapes, query params, and response schemas before writing any Samsara integration code. |
 
 ---
 

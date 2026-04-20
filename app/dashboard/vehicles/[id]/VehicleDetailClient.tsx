@@ -27,6 +27,7 @@ import VORToggleButton from './VORToggleButton'
 import { VehicleSeatingPlan } from '@/lib/types'
 import { SubjectDocumentsChecklist } from '@/components/dashboard/SubjectDocumentsChecklist'
 import VehicleTelematicsPanel from './VehicleTelematicsPanel'
+import VehicleFuelDistancePanel from './VehicleFuelDistancePanel'
 
 type TabType = 'overview' | 'compliance' | 'daily-checks'
 
@@ -354,6 +355,7 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
           {/* Right column (8 cols) */}
           <div className="lg:col-span-8 space-y-4">
             <VehicleTelematicsPanel vehicleId={vehicleId} />
+            <VehicleFuelDistancePanel vehicleId={vehicleId} />
 
             {/* Compliance & expiry - driver-style list with badges */}
             <Card className="overflow-hidden">

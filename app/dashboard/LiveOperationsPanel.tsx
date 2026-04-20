@@ -35,6 +35,7 @@ type LiveOpsResponse = {
     totalMileageThisWeekKm: number
     fuelUsedTodayLiters: number
     fuelUsedThisWeekLiters: number
+    fuelDataUpdatedAt: string | null
   }
   map: {
     activeRoutes: Array<{
@@ -96,6 +97,13 @@ declare global {
   interface Window {
     google: typeof google
   }
+}
+
+function fuelUpdatedLabel(iso?: string | null): string {
+  if (!iso) return 'Unknown'
+  const d = new Date(iso)
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) +
+    ' · ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 export default function LiveOperationsPanel({
@@ -592,15 +600,15 @@ export default function LiveOperationsPanel({
       </CardHeader>
       <CardContent className={`pt-4 space-y-4 ${isFullScreen ? 'flex flex-1 flex-col' : ''}`}>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-          <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Scheduled Today" value={cards?.scheduledRoutesToday ?? 0} />
-          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="Moving" value={cards?.vehiclesMoving ?? 0} />
-          <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idling" value={cards?.vehiclesIdling ?? 0} />
-          <StatChip icon={<Power className="h-3.5 w-3.5" />} label="Engine Off" value={cards?.vehiclesEngineOff ?? 0} />
-          <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Signal" value={cards?.vehiclesNoSignal ?? 0} />
-          <StatChip label="Mileage Today" value={`${cards?.totalMileageTodayKm ?? 0} km`} />
-          <StatChip label="Mileage Week" value={`${cards?.totalMileageThisWeekKm ?? 0} km`} />
-          <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Today" value={`${cards?.fuelUsedTodayLiters ?? 0} L`} />
-          <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Week" value={`${cards?.fuelUsedThisWeekLiters ?? 0} L`} />
+          <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Scheduled Today" value={cards?.scheduledRoutesToday ?? 0} tooltip="Number of routes scheduled to run today." />
+          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="Moving" value={cards?.vehiclesMoving ?? 0} tooltip="Vehicles currently travelling (engine on and speed > 0)." />
+          <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idling" value={cards?.vehiclesIdling ?? 0} tooltip="Vehicles with the engine running but stationary." />
+          <StatChip icon={<Power className="h-3.5 w-3.5" />} label="Engine Off" value={cards?.vehiclesEngineOff ?? 0} tooltip="Vehicles with the engine switched off. Last position is known." />
+          <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Signal" value={cards?.vehiclesNoSignal ?? 0} tooltip="Vehicles that haven't reported a position in the last 10 minutes." />
+          <StatChip label="Mileage Today" value={`${cards?.totalMileageTodayKm ?? 0} km`} tooltip={`Total distance driven by all vehicles since midnight (UTC). Resets each day.\n\nUpdated: ${fuelUpdatedLabel(cards?.fuelDataUpdatedAt)}`} />
+          <StatChip label="Mileage Week" value={`${cards?.totalMileageThisWeekKm ?? 0} km`} tooltip={`Total distance driven by all vehicles since Monday midnight. Resets each Monday. Will match Today on Mondays.\n\nUpdated: ${fuelUpdatedLabel(cards?.fuelDataUpdatedAt)}`} />
+          <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Today" value={`${cards?.fuelUsedTodayLiters ?? 0} L`} tooltip={`Total fuel consumed by all vehicles since midnight (UTC). Resets each day.\n\nUpdated: ${fuelUpdatedLabel(cards?.fuelDataUpdatedAt)}`} />
+          <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Week" value={`${cards?.fuelUsedThisWeekLiters ?? 0} L`} tooltip={`Total fuel consumed by all vehicles since Monday midnight. Resets each Monday. Will match Today on Mondays.\n\nUpdated: ${fuelUpdatedLabel(cards?.fuelDataUpdatedAt)}`} />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -843,16 +851,27 @@ function StatChip({
   label,
   value,
   icon,
+  tooltip,
 }: {
   label: string
   value: string | number
   icon?: ReactNode
+  tooltip?: string
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
       <p className="text-[11px] text-slate-500 flex items-center gap-1">
         {icon}
         {label}
+        {tooltip && (
+          <span className="relative group ml-auto">
+            <span className="cursor-default text-slate-400 hover:text-slate-600 transition-colors">&#9432;</span>
+            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-48 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] leading-snug text-white opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg whitespace-pre-line">
+              {tooltip}
+              <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+            </span>
+          </span>
+        )}
       </p>
       <p className="text-sm font-semibold text-slate-800">{value}</p>
     </div>
