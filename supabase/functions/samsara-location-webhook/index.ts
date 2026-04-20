@@ -54,7 +54,7 @@ interface SamsaraVehicleStat {
     time?: string
     reverseGeo?: { formattedLocation?: string }
   }
-  engineStates?: {
+  engineState?: {
     value?: 'Off' | 'On' | 'Idle'
     time?: string
   }
@@ -231,7 +231,7 @@ Deno.serve(async (req: Request) => {
     const speedKph        = speedMph != null ? Number((speedMph * 1.609344).toFixed(2)) : null
     const locationTime    = gps.time ?? now
     const formattedLocation = reverseGeo.formattedLocation ?? null
-    const engineState     = stat.engineStates?.value ?? null
+    const engineState     = stat.engineState?.value ?? null
 
     const { error: upsertErr } = await supabase
       .from('vehicles_realtime')

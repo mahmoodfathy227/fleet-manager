@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { loadGoogleMapsScript } from '@/lib/google-maps-loader'
 import { CLEAN_FLEET_MAP_STYLES } from '@/lib/google-maps-style'
-import { Activity, Car, Clock3, Fuel, Route, MapPinned } from 'lucide-react'
+import { Activity, Car, Clock3, Fuel, Power, Route, MapPinned } from 'lucide-react'
 
 type VehicleRealtime = {
   id: string
@@ -18,6 +18,7 @@ type VehicleRealtime = {
   heading: number | null
   speed: number | null
   engine_state: string | null
+  formatted_location: string | null
   location_time: string | null
   updated_at: string | null
 }
@@ -25,9 +26,11 @@ type VehicleRealtime = {
 type LiveOpsResponse = {
   cards: {
     activeRoutes: number
-    vehiclesOnRun: number
-    vehiclesIdle: number
-    noRecentLocationUpdate: number
+    scheduledRoutesToday: number
+    vehiclesMoving: number
+    vehiclesIdling: number
+    vehiclesEngineOff: number
+    vehiclesNoSignal: number
     totalMileageTodayKm: number
     totalMileageThisWeekKm: number
     fuelUsedTodayLiters: number
@@ -72,6 +75,13 @@ type LiveOpsResponse = {
         telematics_timestamp?: string | null
         stale?: boolean
       } | null
+      scheduledRoute: {
+        sessionId: number
+        routeId: number
+        routeNumber: string | null
+        sessionType: string | null
+        started: boolean
+      } | null
     }>
     completedRoutes: Array<{
       id: number
@@ -112,6 +122,16 @@ export default function LiveOperationsPanel({
   const polylinesRef = useRef<google.maps.Polyline[]>([])
   const fitBoundsDoneRef = useRef(false)
   const realtimeVehiclesRef = useRef<Map<number, VehicleRealtime>>(new Map())
+  const [mapReady, setMapReady] = useState(false)
+  const [selectedVehicleRealtime, setSelectedVehicleRealtime] = useState<VehicleRealtime | null>(null)
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null)
+  const selectedVehicleIdRef = useRef<number | null>(null)
+  // Animation: batch updates into one RAF tick to eliminate per-vehicle stagger
+  const pendingUpdatesRef = useRef<Map<number, VehicleRealtime>>(new Map())
+  const rafScheduledRef = useRef(false)
+  // Per-vehicle animation: frameId + current animated heading
+  const animFrameRef = useRef<Map<number, number>>(new Map())
+  const markerHeadingRef = useRef<Map<number, number>>(new Map())
 
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || ''
   const shouldShowMap = !loading && !error && Boolean(apiKey)
@@ -147,16 +167,42 @@ export default function LiveOperationsPanel({
   // ── Live positions: Supabase Realtime subscription on vehicles_realtime ─
   useEffect(() => {
     const supabase = createClient()
+    // Seed initial positions immediately — no need to wait for the first WS push
+    void supabase
+      .from('vehicles_realtime')
+      .select('*')
+      .then(({ data }: { data: VehicleRealtime[] | null }) => {
+        if (!data) return
+        for (const row of data as VehicleRealtime[]) {
+          if (!row.vehicle_db_id) continue
+          realtimeVehiclesRef.current.set(row.vehicle_db_id, row)
+          updateMarkerForVehicle(row)
+        }
+      })
     const channel = supabase
       .channel('vehicles_realtime_live')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .on(
-        'postgres_changes',
+        'postgres_changes' as any,
         { event: '*', schema: 'public', table: 'vehicles_realtime' },
-        (payload) => {
+        (payload: { new: VehicleRealtime }) => {
           const row = payload.new as VehicleRealtime
           if (!row?.vehicle_db_id) return
           realtimeVehiclesRef.current.set(row.vehicle_db_id, row)
-          updateMarkerForVehicle(row)
+          // Batch: queue the update; flush all pending in one RAF tick
+          pendingUpdatesRef.current.set(row.vehicle_db_id, row)
+          if (row.vehicle_db_id === selectedVehicleIdRef.current) {
+            setSelectedVehicleRealtime(row)
+          }
+          if (!rafScheduledRef.current) {
+            rafScheduledRef.current = true
+            requestAnimationFrame(() => {
+              rafScheduledRef.current = false
+              const batch = new Map(pendingUpdatesRef.current)
+              pendingUpdatesRef.current.clear()
+              Array.from(batch.values()).forEach((r) => updateMarkerForVehicle(r))
+            })
+          }
         }
       )
       .subscribe()
@@ -204,8 +250,9 @@ export default function LiveOperationsPanel({
       return {
         ...idleMatch,
         status: 'idle' as const,
-        routeNumber: null,
-        routeId: null,
+        routeNumber: idleMatch.scheduledRoute?.routeNumber ?? null,
+        routeId: idleMatch.scheduledRoute?.routeId ?? null,
+        scheduledRoute: idleMatch.scheduledRoute,
       }
     }
 
@@ -222,6 +269,13 @@ export default function LiveOperationsPanel({
     }
   }, [selectedVehicleId, visibleAssignedVehicles, visibleIdleVehicles])
 
+  // Sync ref (used in Realtime closure) + init panel data when selection changes
+  useEffect(() => {
+    selectedVehicleIdRef.current = selectedVehicleId
+    if (!selectedVehicleId) { setSelectedVehicleRealtime(null); return }
+    setSelectedVehicleRealtime(realtimeVehiclesRef.current.get(selectedVehicleId) ?? null)
+  }, [selectedVehicleId])
+
   useEffect(() => {
     if (!shouldShowMap || !mapRef.current || !apiKey) return
     let mounted = true
@@ -235,6 +289,8 @@ export default function LiveOperationsPanel({
           zoom: 6,
           styles: CLEAN_FLEET_MAP_STYLES,
         })
+        infoWindowRef.current = new window.google.maps.InfoWindow()
+        setMapReady(true)
       }
     }
 
@@ -275,6 +331,75 @@ export default function LiveOperationsPanel({
     }
   }
 
+  // ── Smooth marker animation: interpolate position + heading over polling interval ──
+  function animateMarkerToPosition(
+    vehicleDbId: number,
+    marker: google.maps.Marker,
+    row: VehicleRealtime
+  ) {
+    if (!window.google?.maps || row.latitude == null || row.longitude == null) return
+
+    const toLat = Number(row.latitude)
+    const toLng = Number(row.longitude)
+    const toHeading = Number(row.heading ?? 0)
+
+    // Cancel any in-progress animation for this vehicle
+    const existingFrame = animFrameRef.current.get(vehicleDbId)
+    if (existingFrame != null) cancelAnimationFrame(existingFrame)
+
+    const currentPos = marker.getPosition()
+    const fromLat = currentPos?.lat() ?? toLat
+    const fromLng = currentPos?.lng() ?? toLng
+    const fromHeading = markerHeadingRef.current.get(vehicleDbId) ?? toHeading
+
+    const staleCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const stale = !row.location_time || row.location_time < staleCutoff
+    const isSelected = selectedVehicleIdRef.current === vehicleDbId
+
+    // Shortest-path heading delta (avoid spinning the long way around)
+    let dh = toHeading - fromHeading
+    if (dh > 180) dh -= 360
+    if (dh < -180) dh += 360
+
+    // Snap immediately if distance is negligible (< ~30 m) — no animation needed
+    const DEG_PER_M = 1 / 111_000
+    const distSq = (toLat - fromLat) ** 2 + (toLng - fromLng) ** 2
+    if (distSq < (30 * DEG_PER_M) ** 2) {
+      marker.setPosition({ lat: toLat, lng: toLng })
+      markerHeadingRef.current.set(vehicleDbId, toHeading)
+      marker.setIcon(getMarkerIcon(row.engine_state, row.speed, toHeading, stale, isSelected))
+      return
+    }
+
+    // Animate over slightly less than the polling interval so the vehicle
+    // "arrives" just before the next position update lands
+    const DURATION = 4800
+    const startTime = performance.now()
+
+    function tick(now: number) {
+      const raw = Math.min((now - startTime) / DURATION, 1)
+      // Ease-in-out cubic for natural deceleration
+      const t = raw < 0.5 ? 4 * raw ** 3 : 1 - (-2 * raw + 2) ** 3 / 2
+
+      const lat = fromLat + (toLat - fromLat) * t
+      const lng = fromLng + (toLng - fromLng) * t
+      const heading = fromHeading + dh * t
+
+      marker.setPosition({ lat, lng })
+      markerHeadingRef.current.set(vehicleDbId, heading)
+      // Update icon on every frame so the arrow rotates smoothly
+      marker.setIcon(getMarkerIcon(row.engine_state, row.speed, heading, stale, isSelected))
+
+      if (t < 1) {
+        animFrameRef.current.set(vehicleDbId, requestAnimationFrame(tick))
+      } else {
+        animFrameRef.current.delete(vehicleDbId)
+      }
+    }
+
+    animFrameRef.current.set(vehicleDbId, requestAnimationFrame(tick))
+  }
+
   // ── Helper: update or create a single marker from a realtime row ─────────
   function updateMarkerForVehicle(row: VehicleRealtime) {
     const map = mapInstanceRef.current
@@ -289,8 +414,7 @@ export default function LiveOperationsPanel({
 
     const existing = markerMapRef.current.get(row.vehicle_db_id)
     if (existing) {
-      existing.setPosition(position)
-      existing.setIcon(icon)
+      animateMarkerToPosition(row.vehicle_db_id, existing, row)
     } else {
       const marker = new window.google.maps.Marker({
         position,
@@ -299,6 +423,28 @@ export default function LiveOperationsPanel({
         icon,
       })
       marker.addListener('click', () => setSelectedVehicleId(row.vehicle_db_id!))
+      marker.addListener('mouseover', () => {
+        const latest = realtimeVehiclesRef.current.get(row.vehicle_db_id!) || row
+        const engineLabel = latest.engine_state ?? 'Unknown'
+        const speedLabel = latest.speed != null ? `${Number(latest.speed).toFixed(1)} km/h` : '—'
+        const locLabel = latest.formatted_location ??
+          (latest.latitude != null ? `${Number(latest.latitude).toFixed(4)}, ${Number(latest.longitude).toFixed(4)}` : '—')
+        const timeLabel = latest.location_time
+          ? new Date(latest.location_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+          : '—'
+        infoWindowRef.current?.setContent(
+          `<div style="font-family:system-ui,sans-serif;padding:2px 4px;min-width:170px">` +
+          `<div style="font-weight:600;font-size:13px;margin-bottom:6px">${latest.name ?? `Vehicle ${row.vehicle_db_id}`}</div>` +
+          `<table style="font-size:11px;border-collapse:collapse;width:100%">` +
+          `<tr><td style="color:#666;padding:2px 10px 2px 0">Engine</td><td style="font-weight:500">${engineLabel}</td></tr>` +
+          `<tr><td style="color:#666;padding:2px 10px 2px 0">Speed</td><td style="font-weight:500">${speedLabel}</td></tr>` +
+          `<tr><td style="color:#666;padding:2px 10px 2px 0">Location</td><td style="font-weight:500">${locLabel}</td></tr>` +
+          `<tr><td style="color:#666;padding:2px 10px 2px 0">Updated</td><td style="font-weight:500">${timeLabel}</td></tr>` +
+          `</table></div>`
+        )
+        infoWindowRef.current?.open(map, marker)
+      })
+      marker.addListener('mouseout', () => infoWindowRef.current?.close())
       markerMapRef.current.set(row.vehicle_db_id, marker)
       markersRef.current.push(marker)
     }
@@ -363,6 +509,29 @@ export default function LiveOperationsPanel({
           icon,
         })
         marker.addListener('click', () => setSelectedVehicleId(vehicle.id))
+        marker.addListener('mouseover', () => {
+          const latest = realtimeVehiclesRef.current.get(vehicle.id)
+          const name = vehicle.vehicle_identifier || vehicle.registration || `Vehicle ${vehicle.id}`
+          const engineLabel = latest?.engine_state ?? 'Unknown'
+          const speedLabel = latest?.speed != null ? `${Number(latest.speed).toFixed(1)} km/h` : '—'
+          const locLabel = latest?.formatted_location ??
+            (latest?.latitude != null ? `${Number(latest.latitude).toFixed(4)}, ${Number(latest.longitude).toFixed(4)}` : '—')
+          const timeLabel = latest?.location_time
+            ? new Date(latest.location_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+            : '—'
+          infoWindowRef.current?.setContent(
+            `<div style="font-family:system-ui,sans-serif;padding:2px 4px;min-width:170px">` +
+            `<div style="font-weight:600;font-size:13px;margin-bottom:6px">${name}</div>` +
+            `<table style="font-size:11px;border-collapse:collapse;width:100%">` +
+            `<tr><td style="color:#666;padding:2px 10px 2px 0">Engine</td><td style="font-weight:500">${engineLabel}</td></tr>` +
+            `<tr><td style="color:#666;padding:2px 10px 2px 0">Speed</td><td style="font-weight:500">${speedLabel}</td></tr>` +
+            `<tr><td style="color:#666;padding:2px 10px 2px 0">Location</td><td style="font-weight:500">${locLabel}</td></tr>` +
+            `<tr><td style="color:#666;padding:2px 10px 2px 0">Updated</td><td style="font-weight:500">${timeLabel}</td></tr>` +
+            `</table></div>`
+          )
+          infoWindowRef.current?.open(map, marker)
+        })
+        marker.addListener('mouseout', () => infoWindowRef.current?.close())
         markerMapRef.current.set(vehicle.id, marker)
         markersRef.current.push(marker)
       }
@@ -375,7 +544,7 @@ export default function LiveOperationsPanel({
       map.fitBounds(bounds)
       fitBoundsDoneRef.current = true
     }
-  }, [selectedVehicleId, visibleRoutes, visibleAssignedVehicles, visibleIdleVehicles])
+  }, [selectedVehicleId, visibleRoutes, visibleAssignedVehicles, visibleIdleVehicles, mapReady])
 
   const cards = data?.cards
   const routeOptions = data?.map.activeRoutes || []
@@ -423,10 +592,11 @@ export default function LiveOperationsPanel({
       </CardHeader>
       <CardContent className={`pt-4 space-y-4 ${isFullScreen ? 'flex flex-1 flex-col' : ''}`}>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-          <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Active Routes" value={cards?.activeRoutes ?? 0} />
-          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="On Run" value={cards?.vehiclesOnRun ?? 0} />
-          <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idle" value={cards?.vehiclesIdle ?? 0} />
-          <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Update" value={cards?.noRecentLocationUpdate ?? 0} />
+          <StatChip icon={<Route className="h-3.5 w-3.5" />} label="Scheduled Today" value={cards?.scheduledRoutesToday ?? 0} />
+          <StatChip icon={<Car className="h-3.5 w-3.5" />} label="Moving" value={cards?.vehiclesMoving ?? 0} />
+          <StatChip icon={<Activity className="h-3.5 w-3.5" />} label="Idling" value={cards?.vehiclesIdling ?? 0} />
+          <StatChip icon={<Power className="h-3.5 w-3.5" />} label="Engine Off" value={cards?.vehiclesEngineOff ?? 0} />
+          <StatChip icon={<Clock3 className="h-3.5 w-3.5" />} label="No Signal" value={cards?.vehiclesNoSignal ?? 0} />
           <StatChip label="Mileage Today" value={`${cards?.totalMileageTodayKm ?? 0} km`} />
           <StatChip label="Mileage Week" value={`${cards?.totalMileageThisWeekKm ?? 0} km`} />
           <StatChip icon={<Fuel className="h-3.5 w-3.5" />} label="Fuel Today" value={`${cards?.fuelUsedTodayLiters ?? 0} L`} />
@@ -434,10 +604,10 @@ export default function LiveOperationsPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Legend color="bg-blue-500" text="Active route polyline" />
-          <Legend color="bg-green-500" text="Assigned vehicle" />
-          <Legend color="bg-slate-500" text="Idle vehicle" />
-          <Legend color="bg-amber-500" text="Completed route (list)" />
+          <span className="flex items-center gap-1 text-slate-600"><span className="text-green-600 font-bold text-base leading-none">&#x25B2;</span> Moving</span>
+          <Legend color="bg-amber-500" text="Idling" />
+          <Legend color="bg-slate-500" text="Engine off" />
+          <Legend color="bg-slate-300" text="No signal" />
         </div>
 
         {!loading && !error && !hasActiveRoutes && visibleIdleVehicles.length > 0 && (
@@ -494,17 +664,17 @@ export default function LiveOperationsPanel({
         )}
 
         {selectedVehicle && (
-          <Link href={`/dashboard/vehicles/${selectedVehicle.id}`} className="block">
-            <div className="rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-primary hover:bg-slate-50">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {selectedVehicle.vehicle_identifier || selectedVehicle.registration || `Vehicle ${selectedVehicle.id}`}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {selectedVehicle.registration || 'No registration'}
-                  </p>
-                </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  {selectedVehicle.vehicle_identifier || selectedVehicle.registration || `Vehicle ${selectedVehicle.id}`}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {selectedVehicle.registration || 'No registration'}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 <span
                   className={`rounded-full px-2 py-1 text-[11px] font-medium ${
                     selectedVehicle.status === 'assigned'
@@ -512,46 +682,112 @@ export default function LiveOperationsPanel({
                       : 'bg-slate-100 text-slate-700'
                   }`}
                 >
-                  {selectedVehicle.status === 'assigned' ? 'Assigned' : 'Idle'}
+                  {selectedVehicle.status === 'assigned' ? 'On run' : 'Unassigned'}
                 </span>
+                {selectedVehicleRealtime?.engine_state && (
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                    selectedVehicleRealtime.engine_state === 'On' && (selectedVehicleRealtime.speed ?? 0) > 3
+                      ? 'bg-green-100 text-green-700'
+                      : selectedVehicleRealtime.engine_state === 'Off'
+                      ? 'bg-slate-100 text-slate-600'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {selectedVehicleRealtime.engine_state === 'On' && (selectedVehicleRealtime.speed ?? 0) > 3
+                      ? 'Moving'
+                      : selectedVehicleRealtime.engine_state === 'Off'
+                      ? 'Engine off'
+                      : 'Idling'}
+                  </span>
+                )}
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs text-slate-600">
-                <div>
-                  <p className="text-[11px] text-slate-500">Location</p>
-                  <p>
-                    {selectedVehicle.telematics?.latitude != null && selectedVehicle.telematics?.longitude != null
-                      ? `${selectedVehicle.telematics.latitude.toFixed(5)}, ${selectedVehicle.telematics.longitude.toFixed(5)}`
-                      : 'No coordinates'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] text-slate-500">Speed</p>
-                  <p>
-                    {selectedVehicle.telematics?.speed_kph != null
-                      ? `${selectedVehicle.telematics.speed_kph} km/h`
-                      : 'Idle'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] text-slate-500">Last Update</p>
-                  <p>
-                    {selectedVehicle.telematics?.telematics_timestamp
-                      ? new Date(selectedVehicle.telematics.telematics_timestamp).toLocaleString()
-                      : 'Unknown'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] text-slate-500">Route</p>
-                  <p>
-                    {selectedVehicle.routeId
-                      ? selectedVehicle.routeNumber || `Route ${selectedVehicle.routeId}`
-                      : 'No active route'}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 text-xs font-medium text-primary">Open vehicle profile</p>
             </div>
-          </Link>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs text-slate-600">
+              <div>
+                <p className="text-[11px] text-slate-500">Engine</p>
+                <p className="font-medium">{selectedVehicleRealtime?.engine_state ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Speed</p>
+                <p className="font-medium">
+                  {selectedVehicleRealtime?.speed != null
+                    ? `${Number(selectedVehicleRealtime.speed).toFixed(1)} km/h`
+                    : selectedVehicle.telematics?.speed_kph != null
+                    ? `${selectedVehicle.telematics.speed_kph} km/h`
+                    : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Location</p>
+                <p>
+                  {selectedVehicleRealtime?.formatted_location ||
+                    (selectedVehicleRealtime?.latitude != null
+                      ? `${Number(selectedVehicleRealtime.latitude).toFixed(4)}, ${Number(selectedVehicleRealtime.longitude).toFixed(4)}`
+                      : selectedVehicle.telematics?.latitude != null
+                      ? `${selectedVehicle.telematics.latitude.toFixed(4)}, ${selectedVehicle.telematics.longitude?.toFixed(4)}`
+                      : 'No coordinates')}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500">Updated</p>
+                <p>
+                  {(selectedVehicleRealtime?.location_time ?? selectedVehicle.telematics?.telematics_timestamp)
+                    ? new Date((selectedVehicleRealtime?.location_time ?? selectedVehicle.telematics!.telematics_timestamp)!)
+                        .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+                    : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Route section */}
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              {selectedVehicle.status === 'assigned' ? (
+                <div className="text-xs">
+                  <p className="text-[11px] text-slate-500">On run</p>
+                  <p className="font-medium text-emerald-700">
+                    {selectedVehicle.routeNumber || `Route ${selectedVehicle.routeId}`}
+                  </p>
+                </div>
+              ) : (selectedVehicle as { scheduledRoute?: { started: boolean; routeNumber: string | null; routeId: number; sessionType: string | null } | null }).scheduledRoute ? (
+                (() => {
+                  const sr = (selectedVehicle as { scheduledRoute: { started: boolean; routeNumber: string | null; routeId: number; sessionType: string | null } }).scheduledRoute
+                  return sr.started ? (
+                    <div className="text-xs">
+                      <p className="text-[11px] text-slate-500">Assigned route</p>
+                      <p className="font-medium text-slate-800">
+                        {sr.routeNumber || `Route ${sr.routeId}`}{sr.sessionType ? ` — ${sr.sessionType}` : ''}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+                      <span className="text-amber-500 mt-0.5 text-sm leading-none">⚠</span>
+                      <div className="text-xs">
+                        <p className="font-semibold text-amber-800">Session not started</p>
+                        <p className="text-amber-700 mt-0.5">
+                          This vehicle is scheduled for{' '}
+                          <span className="font-medium">{sr.routeNumber || `Route ${sr.routeId}`}{sr.sessionType ? ` (${sr.sessionType})` : ''}</span>{' '}
+                          but the driver has not started the session.
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()
+              ) : (
+                <p className="text-xs text-slate-500">No route scheduled for today</p>
+              )}
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <Link href={`/dashboard/vehicles/${selectedVehicle.id}`}>
+                <button
+                  type="button"
+                  className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 transition-colors"
+                >
+                  Open vehicle profile
+                </button>
+              </Link>
+            </div>
+          </div>
         )}
 
         <div className="grid gap-3 lg:grid-cols-2">

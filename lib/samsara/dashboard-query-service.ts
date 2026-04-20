@@ -4,8 +4,6 @@ import {
   getVehicleLocationFallbacks,
   type SupabaseLike,
 } from '@/lib/samsara/location-fallback-service'
-import { SamsaraApiClient } from '@/lib/samsara/client'
-import { normalizeRegistration } from '@/lib/samsara/registration'
 
 type LiveOpsFilters = {
   depotId?: number
@@ -32,79 +30,6 @@ function startOfWeekIso() {
   return d.toISOString()
 }
 
-async function getDirectSamsaraTelemetryByVehicleId(
-  vehicles: Array<Record<string, unknown>>
-): Promise<Map<number, Record<string, unknown>>> {
-  if (vehicles.length === 0) {
-    return new Map()
-  }
-
-  try {
-    const samsaraClient = new SamsaraApiClient()
-    const samsaraVehicles = await samsaraClient.listVehicles()
-
-    const internalVehicleIdByKey = new Map<string, number>()
-    for (const vehicle of vehicles) {
-      const vehicleId = Number(vehicle.id)
-      if (!Number.isFinite(vehicleId)) continue
-
-      const keys = [
-        normalizeRegistration(vehicle.registration as string | null),
-        normalizeRegistration(vehicle.vehicle_identifier as string | null),
-      ].filter(Boolean)
-
-      for (const key of keys) {
-        if (!internalVehicleIdByKey.has(key)) {
-          internalVehicleIdByKey.set(key, vehicleId)
-        }
-      }
-    }
-
-    const samsaraIdToVehicleId = new Map<string, number>()
-    for (const samsaraVehicle of samsaraVehicles) {
-      const keys = [
-        normalizeRegistration(samsaraVehicle.registration),
-        normalizeRegistration(samsaraVehicle.licensePlate),
-        normalizeRegistration(samsaraVehicle.name),
-      ].filter(Boolean)
-
-      const internalVehicleId = keys
-        .map((key) => internalVehicleIdByKey.get(key))
-        .find((value): value is number => Number.isFinite(value))
-
-      if (internalVehicleId != null) {
-        samsaraIdToVehicleId.set(samsaraVehicle.id, internalVehicleId)
-      }
-    }
-
-    const telemetryRows = await samsaraClient.getVehicleTelemetry(
-      Array.from(samsaraIdToVehicleId.keys())
-    )
-
-    const telemetryByVehicleId = new Map<number, Record<string, unknown>>()
-    for (const telemetry of telemetryRows) {
-      const vehicleId = samsaraIdToVehicleId.get(telemetry.samsaraVehicleId)
-      if (!vehicleId) continue
-
-      telemetryByVehicleId.set(vehicleId, {
-        latitude: telemetry.latitude,
-        longitude: telemetry.longitude,
-        heading: telemetry.heading,
-        speed_kph: telemetry.speedKph,
-        ignition_on: telemetry.ignitionOn,
-        odometer_km: telemetry.odometerKm,
-        fuel_used_liters: telemetry.fuelUsedLiters,
-        telematics_timestamp: telemetry.telematicsTimestamp,
-        formatted_location: null,
-        data_source: 'samsara_direct',
-      })
-    }
-
-    return telemetryByVehicleId
-  } catch {
-    return new Map()
-  }
-}
 
 export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
   const supabase = createServiceClient()
@@ -136,10 +61,17 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
     .not('started_at', 'is', null)
     .is('ended_at', null)
 
+  // All sessions today (started or not) — used to match vehicles to their scheduled route
+  const scheduledSessionQuery = supabase
+    .from('route_sessions')
+    .select('id, route_id, session_type, started_at, routes!inner(id, route_number, vehicle_id)')
+    .eq('session_date', todayDate)
+    .is('ended_at', null)
+
   if (filters.routeId) activeSessionQuery = activeSessionQuery.eq('route_id', filters.routeId)
   if (filters.driverId) activeSessionQuery = activeSessionQuery.eq('driver_id', filters.driverId)
 
-  const [{ data: activeSessions }, { data: completedTodaySessions }, { data: allVehicles }] =
+  const [{ data: activeSessions }, { data: completedTodaySessions }, { data: allVehicles }, { data: scheduledSessions }] =
     await Promise.all([
       activeSessionQuery,
       supabase
@@ -150,6 +82,7 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
       supabase
         .from('vehicles')
         .select('id, vehicle_identifier, registration, off_the_road, samsara_vehicle_id'),
+      scheduledSessionQuery,
     ])
 
   const activeRouteIds = (activeSessions || []).map((session) => session.route_id as number)
@@ -165,17 +98,12 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
     .filter((id): id is number => Boolean(id))
 
   const [
-    { data: telematicsRows },
     { data: routePoints },
     { data: historyToday },
     { data: historyWeek },
     locationFallbacks,
   ] =
     await Promise.all([
-      supabase
-        .from('vehicle_telematics_latest')
-        .select('*')
-        .order('telematics_timestamp', { ascending: false }),
       activeRouteIds.length > 0
         ? supabase
             .from('route_points')
@@ -199,10 +127,6 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
       ),
     ])
 
-  const telematicsByVehicleId = new Map(
-    (telematicsRows || []).map((row) => [row.vehicle_id as number, row])
-  )
-
   const realtimeMap = await getRealtimeSnapshotsForVehicles(
     (allVehicles || []).map((vehicle) => ({
       vehicleId: vehicle.id as number,
@@ -212,16 +136,10 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
     }))
   )
 
-  const directSamsaraMap = await getDirectSamsaraTelemetryByVehicleId(
-    (allVehicles || []) as Array<Record<string, unknown>>
-  )
-
   const getTelematicsForVehicle = (vehicleId: number) => {
-    const direct = directSamsaraMap.get(vehicleId)
-    if (direct) return direct
     const realtime = realtimeMap.get(vehicleId)
     if (realtime) return realtime
-    return telematicsByVehicleId.get(vehicleId) || locationFallbacks.get(vehicleId) || null
+    return locationFallbacks.get(vehicleId) || null
   }
 
   const activeRoutes = (activeSessions || []).map((session) => {
@@ -268,15 +186,53 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
   })
 
   const enRouteVehicleIds = new Set(activeVehicleIds)
+
+  // Map vehicle_id → scheduled (but not-yet-started) session for today
+  const scheduledRouteByVehicleId = new Map<number, { sessionId: number; routeId: number; routeNumber: string | null; sessionType: string | null; started: boolean }>()
+  for (const s of scheduledSessions || []) {
+    const r = Array.isArray(s.routes) ? s.routes[0] : s.routes as { id: number; route_number?: string | null; vehicle_id?: number | null } | null
+    if (!r?.vehicle_id) continue
+    const vehicleId = Number(r.vehicle_id)
+    if (!scheduledRouteByVehicleId.has(vehicleId)) {
+      scheduledRouteByVehicleId.set(vehicleId, {
+        sessionId: s.id as number,
+        routeId: r.id,
+        routeNumber: r.route_number ?? null,
+        sessionType: s.session_type as string | null,
+        started: Boolean((s as { started_at?: unknown }).started_at),
+      })
+    }
+  }
   const idleVehicles = (allVehicles || []).filter(
     (vehicle) => !enRouteVehicleIds.has(vehicle.id) && !vehicle.off_the_road
   )
 
-  const vehiclesWithStaleLocation = (allVehicles || []).filter((vehicle) => {
-    const telematics = getTelematicsForVehicle(vehicle.id as number)
-    if (!telematics?.telematics_timestamp) return true
-    return String(telematics.telematics_timestamp) < staleCutoff
-  })
+  // Samsara-based engine state counts (from vehicles_realtime only — accurate)
+  // Only vehicles with a samsara_vehicle_id are Samsara-tracked; others have no tracker at all
+  let vehiclesMovingCount = 0
+  let vehiclesIdlingCount = 0
+  let vehiclesEngineOffCount = 0
+  let vehiclesNoSignalCount = 0
+  for (const vehicle of allVehicles || []) {
+    if (vehicle.off_the_road) continue
+    if (!vehicle.samsara_vehicle_id) continue  // no tracker fitted — exclude from all counts
+    const rt = realtimeMap.get(vehicle.id as number)
+    if (!rt) {
+      vehiclesNoSignalCount++
+      continue
+    }
+    // Treat stale data (>5 min) as No Signal — matches the gray marker on the map
+    const isStale = !rt.telematics_timestamp || String(rt.telematics_timestamp) < staleCutoff
+    if (isStale) {
+      vehiclesNoSignalCount++
+      continue
+    }
+    const engineState = rt.engine_state
+    const speed = Number(rt.speed_kph ?? 0)
+    if (engineState === 'On' && speed > 3) vehiclesMovingCount++
+    else if (engineState === 'On') vehiclesIdlingCount++
+    else vehiclesEngineOffCount++
+  }
 
   const pointsByRouteId = new Map<number, Array<Record<string, unknown>>>()
   for (const point of routePoints || []) {
@@ -327,9 +283,11 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
   return {
     cards: {
       activeRoutes: activeRoutes.length,
-      vehiclesOnRun: enRouteVehicleIds.size,
-      vehiclesIdle: idleVehicles.length,
-      noRecentLocationUpdate: vehiclesWithStaleLocation.length,
+      vehiclesMoving: vehiclesMovingCount,
+      vehiclesIdling: vehiclesIdlingCount,
+      vehiclesEngineOff: vehiclesEngineOffCount,
+      vehiclesNoSignal: vehiclesNoSignalCount,
+      scheduledRoutesToday: (scheduledSessions || []).length,
       totalMileageTodayKm: computeDistance(historyToday || []),
       totalMileageThisWeekKm: computeDistance(historyWeek || []),
       fuelUsedTodayLiters: computeFuel(historyToday || []),
@@ -357,6 +315,7 @@ export async function getLiveOpsDashboardData(filters: LiveOpsFilters = {}) {
         ...vehicle,
         status: 'idle_vehicle',
         telematics: getTelematicsForVehicle(vehicle.id as number),
+        scheduledRoute: scheduledRouteByVehicleId.get(vehicle.id as number) ?? null,
       })),
       completedRoutes: completedTodaySessions || [],
     },
