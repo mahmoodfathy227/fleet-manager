@@ -7,6 +7,7 @@ type RealtimeRow = {
   longitude: number | null
   heading: number | null
   speed: number | null
+  engine_state: string | null
   formatted_location: string | null
   location_time: string | null
   updated_at: string | null
@@ -17,6 +18,7 @@ type RealtimeSnapshot = {
   longitude: number | null
   heading: number | null
   speed_kph: number | null
+  engine_state: string | null
   telematics_timestamp: string | null
   formatted_location: string | null
   data_source: 'samsara_realtime'
@@ -41,6 +43,7 @@ function mapRealtimeRowToSnapshot(row: RealtimeRow): RealtimeSnapshot {
     longitude: row.longitude,
     heading: row.heading,
     speed_kph: row.speed,
+    engine_state: row.engine_state,
     telematics_timestamp: row.location_time || row.updated_at,
     formatted_location: row.formatted_location,
     data_source: 'samsara_realtime',
@@ -89,7 +92,7 @@ export async function getRealtimeSnapshotsForVehicles(
   const idList = valid.map((row) => row.samsaraVehicleId)
   const realtimeQuery = supabase
     .from('vehicles_realtime')
-    .select('id, name, latitude, longitude, heading, speed, formatted_location, location_time, updated_at')
+    .select('id, name, latitude, longitude, heading, speed, engine_state, formatted_location, location_time, updated_at')
 
   const { data: rows, error } =
     idList.length > 0 && !needsNameMatch

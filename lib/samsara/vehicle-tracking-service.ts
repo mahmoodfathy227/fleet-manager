@@ -5,6 +5,32 @@ import {
   type SupabaseLike,
 } from '@/lib/samsara/location-fallback-service'
 
+function resolveFormattedLocation(row: unknown): string | null {
+  if (!row || typeof row !== 'object') return null
+  const candidate = row as {
+    formatted_location?: unknown
+    raw_payload?: {
+      gps?: {
+        reverseGeo?: {
+          formattedLocation?: unknown
+        }
+      }
+    }
+  }
+
+  const direct = candidate.formatted_location
+  if (typeof direct === 'string' && direct.trim().length > 0) {
+    return direct
+  }
+
+  const fromPayload = candidate.raw_payload?.gps?.reverseGeo?.formattedLocation
+  if (typeof fromPayload === 'string' && fromPayload.trim().length > 0) {
+    return fromPayload
+  }
+
+  return null
+}
+
 export async function getVehicleTelematicsState(vehicleId: number) {
   const supabase = await createClient()
   const staleMinutes = Number(process.env.SAMSARA_STALE_MINUTES || 5)
@@ -74,6 +100,7 @@ export async function getVehicleTelematicsState(vehicleId: number) {
           ignitionOn: preferredLatest.ignition_on,
           odometerKm: preferredLatest.odometer_km,
           fuelUsedLiters: preferredLatest.fuel_used_liters,
+          formattedLocation: resolveFormattedLocation(preferredLatest),
           updatedAt: preferredLatest.telematics_timestamp,
           stale: isStale,
           dataSource: preferredLatest.data_source || 'samsara_cached',
@@ -88,6 +115,7 @@ export async function getVehicleTelematicsState(vehicleId: number) {
           ignitionOn: lastKnown.ignition_on,
           odometerKm: lastKnown.odometer_km,
           fuelUsedLiters: lastKnown.fuel_used_liters,
+          formattedLocation: resolveFormattedLocation(lastKnown),
           updatedAt: lastKnown.telematics_timestamp,
         }
       : locationFallback
@@ -99,6 +127,7 @@ export async function getVehicleTelematicsState(vehicleId: number) {
             ignitionOn: locationFallback.ignition_on,
             odometerKm: locationFallback.odometer_km,
             fuelUsedLiters: locationFallback.fuel_used_liters,
+            formattedLocation: locationFallback.formatted_location,
             updatedAt: locationFallback.telematics_timestamp,
           }
       : null,
