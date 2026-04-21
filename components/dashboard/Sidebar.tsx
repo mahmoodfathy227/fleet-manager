@@ -65,7 +65,7 @@ const topLevelItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Live Map', href: '/dashboard/live-map', icon: Monitor },
   { name: 'Calendar', href: '/dashboard/calendar', icon: CalendarDays },
-  { name: 'Compliance', href: '/dashboard/compliance', icon: ClipboardCheck },
+  { name: 'Notifications', href: '/dashboard/compliance', icon: ClipboardCheck },
   { name: 'Route Activity', href: '/dashboard/route-activity', icon: Activity },
   { name: 'School Overview', href: '/dashboard/school-overview', icon: GraduationCap },
   { name: 'Spares', href: '/dashboard/spares', icon: Wrench },
@@ -236,6 +236,10 @@ export function Sidebar() {
     setIsMobileOpen(false)
   }, [pathname])
 
+  useEffect(() => {
+    console.debug('[fleet] Sidebar: top-level label /dashboard/compliance → Notifications (due dates tooltip unchanged)')
+  }, [])
+
   const sidebarContent = (
     <>
       {/* Header */}
@@ -269,11 +273,19 @@ export function Sidebar() {
               showBadge = routeActivityCount > 0
             }
 
+            const navTitle =
+              item.href === '/dashboard/compliance'
+                ? 'Vehicle and staff certificate due dates'
+                : item.href === '/dashboard/route-activity'
+                  ? 'Parent trip cancellations, breakdowns, route delays, urgent incidents'
+                  : undefined
+
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 prefetch={true}
+                title={navTitle}
                 className={cn(
                   'group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200',
                   isActive

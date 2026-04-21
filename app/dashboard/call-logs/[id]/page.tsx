@@ -2,13 +2,65 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { ArrowLeft, Pencil } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
+import { CallLogViewActions } from './CallLogViewActions'
 import { formatDateTime } from '@/lib/utils'
 import { notFound } from 'next/navigation'
+import { unstable_noStore as noStore } from 'next/cache'
 
-async function getCallLog(id: string) {
+export const dynamic = 'force-dynamic'
+
+/** Shaped for this page’s JSX; row comes from Supabase then normalized. */
+type CallLogDetail = {
+  id: number
+  call_date?: string | null
+  caller_name?: string | null
+  caller_phone?: string | null
+  call_to_type?: string | null
+  call_type?: string | null
+  priority?: string | null
+  status?: string | null
+  subject?: string | null
+  notes?: string | null
+  action_taken?: string | null
+  action_required?: boolean | null
+  follow_up_required?: boolean | null
+  follow_up_date?: string | null
+  passengers?: { id: number; full_name: string | null } | null
+  employees?: { id: number; full_name: string | null } | null
+  routes?: { id: number; route_number: string | null } | null
+  driver: {
+    employee_id: number
+    employees: { full_name?: string | null } | null
+  } | null
+  assistant: {
+    employee_id: number
+    employees: { full_name?: string | null } | null
+  } | null
+  outgoingReceiverParent: { id: number; full_name: string | null } | null
+  outgoingReceiverEmployee: { id: number; full_name: string | null } | null
+}
+
+function normalizeEmployeeEmbed<T extends { employees?: { full_name?: string } | { full_name?: string }[] | null }>(
+  row: T | null
+): T | null {
+  if (!row?.employees) return row
+  const e = row.employees
+  if (Array.isArray(e) && e[0]) return { ...row, employees: e[0] }
+  return row
+}
+
+async function getCallLog(idParam: string): Promise<CallLogDetail | null> {
+  noStore()
+  const numericId = parseInt(idParam, 10)
+  if (Number.isNaN(numericId) || numericId < 1) {
+    console.debug('[ViewCallLogPage] getCallLog invalid id', idParam)
+    return null
+  }
+
   const supabase = await createClient()
-  const { data, error } = await supabase
+
+  const joined = await supabase
     .from('call_logs')
     .select(`
       *,
@@ -16,10 +68,44 @@ async function getCallLog(id: string) {
       employees(full_name, id),
       routes(route_number, id)
     `)
-    .eq('id', id)
-    .single()
+    .eq('id', numericId)
+    .maybeSingle()
 
-  if (error || !data) return null
+  if (joined.error) {
+    console.error('[ViewCallLogPage] joined select error', joined.error.message)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase row + embeds; narrowed at return
+  let data: any = joined.data
+
+  if (!data) {
+    const plain = await supabase.from('call_logs').select('*').eq('id', numericId).maybeSingle()
+    if (plain.error) {
+      console.error('[ViewCallLogPage] fallback select error', plain.error.message)
+      return null
+    }
+    if (!plain.data) {
+      console.debug('[ViewCallLogPage] no row for id', numericId)
+      return null
+    }
+    data = plain.data
+    console.debug('[ViewCallLogPage] loaded via fallback select', numericId)
+
+    if (data.related_passenger_id && !data.passengers) {
+      const { data: p } = await supabase.from('passengers').select('id, full_name').eq('id', data.related_passenger_id).maybeSingle()
+      if (p) data.passengers = p
+    }
+    if (data.related_employee_id && !data.employees) {
+      const { data: e } = await supabase.from('employees').select('id, full_name').eq('id', data.related_employee_id).maybeSingle()
+      if (e) data.employees = e
+    }
+    if (data.related_route_id && !data.routes) {
+      const { data: r } = await supabase.from('routes').select('id, route_number').eq('id', data.related_route_id).maybeSingle()
+      if (r) data.routes = r
+    }
+  } else {
+    console.debug('[ViewCallLogPage] loaded via joined select', numericId)
+  }
 
   // Fetch driver and assistant separately if they exist
   let driver = null
@@ -30,8 +116,8 @@ async function getCallLog(id: string) {
       .from('drivers')
       .select('employee_id, employees(full_name)')
       .eq('employee_id', data.related_driver_id)
-      .single()
-    driver = driverData
+      .maybeSingle()
+    driver = normalizeEmployeeEmbed(driverData)
   }
 
   if (data.related_assistant_id) {
@@ -39,8 +125,8 @@ async function getCallLog(id: string) {
       .from('passenger_assistants')
       .select('employee_id, employees(full_name)')
       .eq('employee_id', data.related_assistant_id)
-      .single()
-    assistant = assistantData
+      .maybeSingle()
+    assistant = normalizeEmployeeEmbed(assistantData)
   }
 
   let outgoingReceiverParent = null
@@ -62,11 +148,21 @@ async function getCallLog(id: string) {
     outgoingReceiverEmployee = empData
   }
 
-  return { ...data, driver, assistant, outgoingReceiverParent, outgoingReceiverEmployee }
+  return {
+    ...data,
+    driver,
+    assistant,
+    outgoingReceiverParent,
+    outgoingReceiverEmployee,
+  } as CallLogDetail
 }
 
-export default async function ViewCallLogPage({ params }: { params: { id: string } }) {
-  const callLog = await getCallLog(params.id)
+type PageProps = { params: Promise<{ id: string }> | { id: string } }
+
+export default async function ViewCallLogPage({ params }: PageProps) {
+  const { id } = await Promise.resolve(params)
+  console.debug('[ViewCallLogPage] route id param', id)
+  const callLog = await getCallLog(id)
   if (!callLog) notFound()
 
   return (
@@ -82,15 +178,10 @@ export default async function ViewCallLogPage({ params }: { params: { id: string
           </Link>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Call Log #{callLog.id}</h1>
-            <p className="text-sm text-slate-500">{formatDateTime(callLog.call_date)}</p>
+            <p className="text-sm text-slate-500">{formatDateTime(callLog.call_date ?? null)}</p>
           </div>
         </div>
-        <Link href={`/dashboard/call-logs/${callLog.id}/edit`}>
-          <Button variant="outline" className="border-slate-300 text-slate-600 hover:bg-slate-50">
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit
-          </Button>
-        </Link>
+        <CallLogViewActions id={callLog.id} subject={callLog.subject} />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

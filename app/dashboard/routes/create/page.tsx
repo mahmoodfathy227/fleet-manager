@@ -186,6 +186,10 @@ export default function CreateRoutePage() {
     loadData()
   }, [supabase])
 
+  useEffect(() => {
+    console.debug('[fleet] CreateRoutePage: pickup row — no Type/PA Pickup Point column for stop 1')
+  }, [])
+
   // Load passengers when school is selected
   useEffect(() => {
     async function loadPassengers() {
@@ -850,8 +854,10 @@ export default function CreateRoutePage() {
                 </div>
               </div>
 
-              {/* Compact Form Grid */}
-              <div className="grid gap-3 md:grid-cols-4">
+              {/* Compact Form Grid (stop 1 = PA pickup: no Type column; badge in header only) */}
+              <div
+                className={`grid gap-3 ${point.stop_order > 1 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}
+              >
                 {/* Stop Name */}
                 <div className="space-y-1">
                   <Label className="text-xs text-slate-500">Stop Name</Label>
@@ -894,12 +900,7 @@ export default function CreateRoutePage() {
                       ))}
                     </Select>
                   </div>
-                ) : (
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Type</Label>
-                    <div className="h-8 flex items-center text-xs text-slate-500 bg-slate-100 rounded px-2">PA Pickup Point</div>
-                  </div>
-                )}
+                ) : null}
 
                 {/* AM Time */}
                 <div className="space-y-1">

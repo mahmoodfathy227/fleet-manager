@@ -13,7 +13,7 @@ export function ComplianceTabs() {
     pathname === '/dashboard/compliance' || pathname === '/dashboard/compliance/'
 
   useEffect(() => {
-    console.debug('[fleet] ComplianceTabs: Vehicles tab removed; Notifications + Cases only')
+    console.debug('[fleet] ComplianceTabs: Due dates (vehicles + staff expiry) + Cases')
   }, [])
 
   return (
@@ -30,7 +30,7 @@ export function ComplianceTabs() {
           )}
         >
           <ClipboardCheck className="h-4 w-4" />
-          Notifications
+          Due dates
         </Link>
         <Link
           href="/dashboard/compliance/cases"

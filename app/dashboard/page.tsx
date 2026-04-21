@@ -196,6 +196,7 @@ async function DashboardContent() {
 
   console.debug('[fleet-dashboard] home: route updates card', { count: routeNotifications.length })
   console.debug('[fleet-dashboard] home: Urgent Actions card is UI-only (logic TBD)')
+  console.debug('[fleet-dashboard] home: Quick Stats Month card → /dashboard/calendar (not incidents)')
 
   return (
     <div className="flex flex-col gap-4 min-h-[calc(100vh-120px)]">
@@ -496,7 +497,7 @@ async function DashboardContent() {
               <p className="text-2xl font-bold text-slate-800">{stats.spareWithLocation}</p>
               <p className="text-xs text-slate-500">Tracked</p>
             </Link>
-            <Link href="/dashboard/incidents" className="text-center p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
+            <Link href="/dashboard/calendar" className="text-center p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
               <Calendar className="h-6 w-6 mx-auto text-blue-500 mb-2" />
               <p className="text-2xl font-bold text-slate-800">{stats.incidentsThisMonth}</p>
               <p className="text-xs text-slate-500">Month</p>

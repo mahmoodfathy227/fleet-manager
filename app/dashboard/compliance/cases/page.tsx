@@ -45,13 +45,15 @@ function getEntityLink(entityType: string, entityId: number) {
 export default async function ComplianceCasesPage() {
   const cases = await getComplianceCases()
 
+  console.debug('[fleet] compliance cases page: empty-state copy → Due dates tab')
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Compliance Cases</h1>
           <p className="text-sm text-slate-500">
-            Track application status, date applied, and appointment date. Open a case from the Notifications tab.
+            Track application status, date applied, and appointment date. Open a case from the Due dates tab.
           </p>
         </div>
       </div>
@@ -76,10 +78,10 @@ export default async function ComplianceCasesPage() {
                   <FolderOpen className="h-12 w-12 text-slate-300 mx-auto mb-3" />
                   <p className="text-slate-500 font-medium">No compliance cases yet</p>
                   <p className="text-sm text-slate-400">
-                    Open a case from the Notifications tab by clicking &quot;Open case&quot; on a notification
+                    Open a case from Due dates by clicking &quot;Open case&quot; on a certificate row
                   </p>
                   <Link href="/dashboard/compliance" className="inline-block mt-3">
-                    <Button variant="secondary" size="sm">Go to Notifications</Button>
+                    <Button variant="secondary" size="sm">Go to due dates</Button>
                   </Link>
                 </TableCell>
               </TableRow>

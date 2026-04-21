@@ -50,6 +50,9 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
       setDocuments([])
     } else {
       setDocuments((data as PassengerDocumentRow[]) || [])
+      console.debug('[PassengerDocumentsCard] documents loaded (file/date/email: forced one-line + ellipsis)', {
+        count: (data as PassengerDocumentRow[])?.length ?? 0,
+      })
     }
     setLoading(false)
   }
@@ -268,14 +271,14 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
           <div className="text-center py-8 text-sm text-gray-600">No documents uploaded yet.</div>
         ) : (
           <div className="rounded-md border overflow-x-auto">
-            <table className="min-w-[640px] w-full divide-y divide-gray-200">
+            <table className="w-max min-w-full divide-y divide-gray-200 text-left">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Title</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Notes</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">File</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Uploaded At</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Uploaded By</th>
+                  <th className="px-4 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Title</th>
+                  <th className="px-4 py-2 text-xs font-medium text-gray-500 max-w-[12rem]">Notes</th>
+                  <th className="px-4 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">File</th>
+                  <th className="px-4 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Uploaded At</th>
+                  <th className="px-4 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Uploaded By</th>
                   <th className="sticky right-0 z-[1] bg-gray-50 px-4 py-2 text-right text-xs font-medium text-gray-500 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)] w-[88px]">
                     Actions
                   </th>
@@ -288,21 +291,54 @@ export default function PassengerDocumentsCard({ passengerId }: { passengerId: n
                   const uploadedByEmail = (Array.isArray(doc.users) ? (doc.users[0] as any)?.email : doc.users?.email) || '-'
                   return (
                     <tr key={doc.id}>
-                      <td className="px-4 py-2 text-sm text-gray-900">{doc.title || doc.file_name || 'Document'}</td>
-                      <td className="px-4 py-2 text-sm text-gray-500 max-w-xs">
-                        {doc.notes ? <span className="line-clamp-2">{doc.notes}</span> : <span className="text-gray-400">-</span>}
+                      <td className="px-4 py-2 text-sm text-gray-900 align-middle whitespace-nowrap">
+                        {doc.title || doc.file_name || 'Document'}
                       </td>
-                      <td className="px-4 py-2 text-sm">
+                      <td className="px-4 py-2 text-sm text-gray-500 align-middle max-w-[12rem]">
+                        {doc.notes ? (
+                          <span className="line-clamp-2 break-words">{doc.notes}</span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td
+                        className="px-4 py-2 text-sm align-middle"
+                        style={{ whiteSpace: 'nowrap', wordBreak: 'normal' }}
+                      >
                         {url ? (
-                          <a className="text-blue-600 hover:underline break-all" href={url} target="_blank" rel="noreferrer">
+                          <a
+                            className="inline-block max-w-[280px] overflow-hidden text-ellipsis text-blue-600 hover:underline"
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={doc.file_name || 'Open file'}
+                            style={{ whiteSpace: 'nowrap', wordBreak: 'normal' }}
+                          >
                             {doc.file_name || 'View'}
                           </a>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-sm text-gray-500">{formatDateTime(doc.uploaded_at)}</td>
-                      <td className="px-4 py-2 text-sm text-gray-500">{uploadedByEmail}</td>
+                      <td
+                        className="px-4 py-2 text-sm text-gray-500 align-middle"
+                        style={{ whiteSpace: 'nowrap', wordBreak: 'normal' }}
+                      >
+                        <span className="inline-block max-w-[220px] overflow-hidden text-ellipsis whitespace-nowrap">
+                          {formatDateTime(doc.uploaded_at)}
+                        </span>
+                      </td>
+                      <td
+                        className="px-4 py-2 text-sm text-gray-500 align-middle"
+                        style={{ whiteSpace: 'nowrap', wordBreak: 'normal' }}
+                      >
+                        <span
+                          className="inline-block max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap"
+                          title={uploadedByEmail}
+                        >
+                          {uploadedByEmail}
+                        </span>
+                      </td>
                       <td className="sticky right-0 z-[1] bg-white px-4 py-2 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)]">
                         <Button
                           type="button"

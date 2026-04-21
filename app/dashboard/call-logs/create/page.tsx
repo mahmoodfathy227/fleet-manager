@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -12,8 +11,15 @@ import { SearchableMultiSelect } from '@/components/ui/SearchableMultiSelect'
 import { ArrowLeft, AlertCircle, Phone, Users, FileText } from 'lucide-react'
 import Link from 'next/link'
 
+/** datetime-local value -> ISO string for Postgres timestamptz */
+function normalizeCallDateForDb(value: string): string {
+  if (!value?.trim()) return value
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toISOString()
+}
+
 export default function CreateCallLogPage() {
-  const router = useRouter()
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
@@ -87,6 +93,21 @@ export default function CreateCallLogPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+
+    const validationErrors: string[] = []
+    if (!formData.caller_name?.trim()) validationErrors.push('Caller name is required.')
+    if (!formData.subject?.trim()) validationErrors.push('Subject is required.')
+    if (!formData.call_to_type?.trim()) validationErrors.push('Call To/From is required.')
+    if (!formData.call_date?.trim()) validationErrors.push('Date and time is required.')
+    if (formData.follow_up_required && !formData.follow_up_date?.trim()) {
+      validationErrors.push('Follow-up date is required when follow-up is enabled.')
+    }
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(' '))
+      console.debug('[CreateCallLogPage] validation failed', validationErrors)
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -119,19 +140,50 @@ export default function CreateCallLogPage() {
       delete (cleanedData as any).related_assistant_ids
       delete (cleanedData as any).related_employee_ids
 
-      const { data, error } = await supabase.from('call_logs').insert([cleanedData]).select()
+      // Only columns that exist on `call_logs` (avoid stray form keys breaking insert/RETURNING).
+      const insertRow = {
+        call_date: normalizeCallDateForDb(cleanedData.call_date),
+        caller_name: cleanedData.caller_name,
+        caller_phone: cleanedData.caller_phone?.trim() || null,
+        call_type: cleanedData.call_type,
+        call_to_type: cleanedData.call_to_type,
+        outgoing_receiver_parent_contact_id: cleanedData.outgoing_receiver_parent_contact_id,
+        outgoing_receiver_employee_id: cleanedData.outgoing_receiver_employee_id,
+        outgoing_receiver_other_name: cleanedData.outgoing_receiver_other_name,
+        related_passenger_id: cleanedData.related_passenger_id,
+        related_driver_id: cleanedData.related_driver_id,
+        related_assistant_id: cleanedData.related_assistant_id,
+        related_employee_id: cleanedData.related_employee_id,
+        related_route_id: cleanedData.related_route_id,
+        subject: cleanedData.subject,
+        notes: cleanedData.notes?.trim() || null,
+        action_required: cleanedData.action_required,
+        action_taken: cleanedData.action_taken?.trim() || null,
+        follow_up_required: cleanedData.follow_up_required,
+        follow_up_date: cleanedData.follow_up_date,
+        priority: cleanedData.priority,
+        status: cleanedData.status,
+      }
+
+      const { data, error } = await supabase.from('call_logs').insert([insertRow]).select('id')
       if (error) throw error
 
-      if (data && data[0]) {
+      const newId = data?.[0]?.id
+      if (newId != null) {
         await fetch('/api/audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ table_name: 'call_logs', record_id: data[0].id, action: 'CREATE' }),
-        })
+          body: JSON.stringify({ table_name: 'call_logs', record_id: newId, action: 'CREATE' }),
+        }).catch(() => {})
+        console.debug('[CreateCallLogPage] call_logs insert ok', { id: newId })
       }
 
-      router.push('/dashboard/call-logs')
-      router.refresh()
+      // Full navigation avoids stale RSC/CDN cache so the list always refetches (see CallLogsTableClient).
+      const dest =
+        newId != null
+          ? `/dashboard/call-logs?created=${newId}`
+          : `/dashboard/call-logs?created=t${Date.now()}`
+      window.location.assign(dest)
     } catch (error: any) {
       setError(error.message || 'An error occurred')
     } finally {
@@ -162,6 +214,11 @@ export default function CreateCallLogPage() {
         </div>
       )}
 
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-3"
+        aria-label="Create call log"
+      >
       {/* Main Form Card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Caller Information Section */}
@@ -387,14 +444,15 @@ export default function CreateCallLogPage() {
       {/* Bottom Actions */}
       <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
         <Link href="/dashboard/call-logs">
-          <Button variant="outline" className="border-slate-300 text-slate-600 hover:bg-slate-50">
+          <Button type="button" variant="outline" className="border-slate-300 text-slate-600 hover:bg-slate-50">
             Cancel
           </Button>
         </Link>
-        <Button onClick={handleSubmit} disabled={loading} className="bg-[#023E8A] hover:bg-[#023E8A]/90 text-white">
+        <Button type="submit" disabled={loading} className="bg-[#023E8A] hover:bg-[#023E8A]/90 text-white">
           {loading ? 'Saving...' : 'Log Call'}
         </Button>
       </div>
+      </form>
     </div>
   )
 }

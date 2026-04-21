@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
@@ -23,7 +22,23 @@ import {
 } from '@/lib/complianceNotificationsDisplay'
 import { loadUserAdminPinIds, saveUserAdminPinIds } from '@/lib/complianceUserAdminPins'
 
-const COMPLIANCE_DASHBOARD_NOTIFICATION_TYPES = ['certificate_expiry', 'trip_cancellation'] as const
+const COMPLIANCE_DASHBOARD_NOTIFICATION_TYPES = ['certificate_expiry'] as const
+
+function subjectKindLabel(entityType: string | null): string {
+  const t = typeof entityType === 'string' ? entityType.trim().toLowerCase() : ''
+  if (t === 'vehicle') return 'Vehicle'
+  if (t === 'driver' || t === 'assistant') return 'Staff'
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Record'
+}
+
+type ComplianceCategoryFilter = 'all' | 'vehicle' | 'staff'
+
+function complianceCategoryFilterLabel(value: string): string {
+  if (value === 'all') return 'All'
+  if (value === 'vehicle') return 'Vehicles'
+  if (value === 'staff') return 'Staff'
+  return value
+}
 
 interface Notification {
   id: number
@@ -58,7 +73,6 @@ interface ComplianceNotificationsClientProps {
 }
 
 export function ComplianceNotificationsClient({ initialNotifications }: ComplianceNotificationsClientProps) {
-  const router = useRouter()
   const { has, loading: permissionsLoading } = usePermissions()
   const canAdminReviewFocus = has('compliance.write') || has('users.manage')
 
@@ -78,7 +92,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
   const [loadingRecipients, setLoadingRecipients] = useState(false)
   const [openingCase, setOpeningCase] = useState<number | null>(null)
   const [sortMode, setSortMode] = useState<ComplianceListSortMode>('newest')
-  const [entityFilter, setEntityFilter] = useState<'all' | string>('all')
+  const [entityFilter, setEntityFilter] = useState<ComplianceCategoryFilter>('all')
   const [userAdminPinnedIds, setUserAdminPinnedIds] = useState<Set<number>>(() =>
     typeof window !== 'undefined' ? loadUserAdminPinIds() : new Set()
   )
@@ -87,11 +101,8 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
 
   useEffect(() => {
     console.debug(
-      '[fleet] ComplianceNotificationsClient: per-row admin pin (localStorage) + confirm; row→open case or route; sort + entity; types',
+      '[fleet] ComplianceNotificationsClient: certificate_expiry only; category filter = All | Vehicles | Staff (driver+assistant merged)',
       COMPLIANCE_DASHBOARD_NOTIFICATION_TYPES
-    )
-    console.debug(
-      '[fleet] ComplianceNotificationsClient: trip_cancellation rows leave Expiry Date + From today columns empty'
     )
   }, [])
 
@@ -114,7 +125,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
   }, [sortMode])
 
   useEffect(() => {
-    console.debug('[fleet] ComplianceNotificationsClient: entity filter', entityFilter)
+    console.debug('[fleet] ComplianceNotificationsClient: category filter', entityFilter)
   }, [entityFilter])
 
   // Initialize AudioContext
@@ -176,34 +187,11 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
     if (typeof window === 'undefined' || !('Notification' in window)) return
     if (Notification.permission !== 'granted') return
 
-    const title =
-      notification.notification_type === 'trip_cancellation'
-        ? 'Trip cancellation'
-        : 'New Compliance Notification'
-    const tripDetails =
-      notification.notification_type === 'trip_cancellation' &&
-      notification.details &&
-      typeof notification.details === 'object' &&
-      !Array.isArray(notification.details)
-        ? (notification.details as Record<string, unknown>)
-        : null
-    const tripDate =
-      tripDetails && typeof tripDetails.trip_date === 'string' ? tripDetails.trip_date : null
-    const d = tripDate
-      ? daysFromTodayToExpiryDate(tripDate)
-      : daysFromTodayToExpiryDate(notification.expiry_date)
-    const body =
-      notification.notification_type === 'trip_cancellation'
-        ? [
-            typeof tripDetails?.route_number === 'string' ? tripDetails.route_number : 'Route',
-            typeof tripDetails?.passenger_name === 'string' ? tripDetails.passenger_name : '',
-            tripDate ? formatDaysFromTodayLabel(d) : '',
-          ]
-            .filter(Boolean)
-            .join(' — ') || 'Trip cancellation'
-        : notification.certificate_name
-          ? `${notification.certificate_name} — ${formatDaysFromTodayLabel(d)}`
-          : 'New compliance notification received'
+    const title = 'Certificate due date'
+    const d = daysFromTodayToExpiryDate(notification.expiry_date)
+    const body = notification.certificate_name
+      ? `${notification.certificate_name} — ${formatDaysFromTodayLabel(d)}`
+      : 'New certificate due date notification'
 
     console.debug('[fleet] ComplianceNotificationsClient: browser notification', notification.id, notification.notification_type)
     new Notification(title, {
@@ -269,7 +257,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
     )
   }, [])
 
-  // Realtime on public.notifications (certificate_expiry + trip_cancellation)
+  // Realtime on public.notifications (certificate_expiry only)
   useEffect(() => {
     const supabase = createClient()
 
@@ -283,7 +271,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
           event: '*',
           schema: 'public',
           table: 'notifications',
-          filter: 'notification_type=in.(certificate_expiry,trip_cancellation)',
+          filter: 'notification_type=eq.certificate_expiry',
         },
         (payload) => {
           console.debug('[fleet] compliance notifications realtime event', payload.eventType, payload)
@@ -568,50 +556,45 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
     return '#'
   }
 
-  const entityTypeOptions = useMemo(() => {
-    const types = new Set<string>()
-    let hasTripCancellation = false
+  /** Canonical buckets: driver + assistant → single "staff" option (no duplicate labels). */
+  const categoryFilterOptions = useMemo((): ComplianceCategoryFilter[] => {
+    let hasVehicle = false
+    let hasStaff = false
     notifications.forEach((n) => {
-      if (n.notification_type === 'trip_cancellation') {
-        hasTripCancellation = true
-        return
-      }
-      const t = typeof n.entity_type === 'string' ? n.entity_type.trim() : ''
-      if (t) types.add(t)
+      const t = typeof n.entity_type === 'string' ? n.entity_type.trim().toLowerCase() : ''
+      if (t === 'vehicle') hasVehicle = true
+      if (t === 'driver' || t === 'assistant') hasStaff = true
     })
-    const sorted = Array.from(types).sort((a, b) => a.localeCompare(b))
-    if (hasTripCancellation) {
-      return ['all', 'trip_cancellation', ...sorted]
-    }
-    return ['all', ...sorted]
+    const opts: ComplianceCategoryFilter[] = ['all']
+    if (hasVehicle) opts.push('vehicle')
+    if (hasStaff) opts.push('staff')
+    return opts
   }, [notifications])
 
   useEffect(() => {
-    if (entityFilter !== 'all' && !entityTypeOptions.includes(entityFilter)) {
+    if (entityFilter !== 'all' && !categoryFilterOptions.includes(entityFilter)) {
       setEntityFilter('all')
-      console.debug('[fleet] ComplianceNotificationsClient: entity filter reset to all (type no longer in list)')
+      console.debug('[fleet] ComplianceNotificationsClient: category filter reset to All (bucket no longer in list)')
     }
-  }, [entityFilter, entityTypeOptions])
+  }, [entityFilter, categoryFilterOptions])
+
+  function notificationMatchesCategoryFilter(n: Notification, filter: ComplianceCategoryFilter): boolean {
+    if (filter === 'all') return true
+    const t = typeof n.entity_type === 'string' ? n.entity_type.trim().toLowerCase() : ''
+    if (filter === 'vehicle') return t === 'vehicle'
+    if (filter === 'staff') return t === 'driver' || t === 'assistant'
+    return true
+  }
 
   const complianceNotifications = useMemo(() => {
     const pending = notifications.filter((n) => n.status !== 'resolved' && n.status !== 'dismissed')
-    const filtered =
-      entityFilter === 'all'
-        ? pending
-        : entityFilter === 'trip_cancellation'
-          ? pending.filter((n) => n.notification_type === 'trip_cancellation')
-          : pending.filter((n) => n.entity_type === entityFilter)
+    const filtered = pending.filter((n) => notificationMatchesCategoryFilter(n, entityFilter))
     return sortPendingComplianceByMode(filtered, sortMode, userAdminPinnedIds)
   }, [notifications, sortMode, entityFilter, userAdminPinnedIds])
 
   const complianceResolved = useMemo(() => {
     const resolved = notifications.filter((n) => n.status === 'resolved' || n.status === 'dismissed')
-    const filtered =
-      entityFilter === 'all'
-        ? resolved
-        : entityFilter === 'trip_cancellation'
-          ? resolved.filter((n) => n.notification_type === 'trip_cancellation')
-          : resolved.filter((n) => n.entity_type === entityFilter)
+    const filtered = resolved.filter((n) => notificationMatchesCategoryFilter(n, entityFilter))
     return sortResolvedComplianceByMode(filtered, sortMode, userAdminPinnedIds)
   }, [notifications, sortMode, entityFilter, userAdminPinnedIds])
 
@@ -635,25 +618,21 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
               <option value="importance">Urgency &amp; importance</option>
             </Select>
           </div>
-          {entityTypeOptions.length > 1 && (
+          {categoryFilterOptions.length > 1 && (
             <div className="flex flex-wrap items-center gap-2">
               <Label htmlFor="compliance-entity-filter" className="text-sm font-medium text-slate-600 whitespace-nowrap">
-                Entity
+                Category
               </Label>
               <Select
                 id="compliance-entity-filter"
                 selectSize="sm"
                 className="w-[min(100%,14rem)] border-slate-200"
-                value={entityFilter === 'all' || entityTypeOptions.includes(entityFilter) ? entityFilter : 'all'}
-                onChange={(e) => setEntityFilter(e.target.value)}
+                value={entityFilter === 'all' || categoryFilterOptions.includes(entityFilter) ? entityFilter : 'all'}
+                onChange={(e) => setEntityFilter(e.target.value as ComplianceCategoryFilter)}
               >
-                {entityTypeOptions.map((value) => (
+                {categoryFilterOptions.map((value) => (
                   <option key={value} value={value}>
-                    {value === 'all'
-                      ? 'All entities'
-                      : value === 'trip_cancellation'
-                        ? 'Trip cancellations'
-                        : value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()}
+                    {complianceCategoryFilterLabel(value)}
                   </option>
                 ))}
               </Select>
@@ -669,11 +648,11 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
             <p className="text-slate-500 font-medium">
               {notifications.some((n) => n.status !== 'resolved' && n.status !== 'dismissed')
                 ? 'No pending notifications match this filter'
-                : 'No pending compliance notifications'}
+                : 'No pending certificate due dates'}
             </p>
             <p className="text-sm text-slate-400">
               {notifications.some((n) => n.status !== 'resolved' && n.status !== 'dismissed')
-                ? 'Try choosing a different entity or All entities.'
+                ? 'Try a different category or All.'
                 : 'All certificates are up to date'}
             </p>
           </CardContent>
@@ -686,7 +665,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                 <TableRow>
                   <TableHead>Status</TableHead>
                   <TableHead>Certificate</TableHead>
-                  <TableHead>Entity</TableHead>
+                  <TableHead>Subject</TableHead>
                   <TableHead>Recipient</TableHead>
                   <TableHead>Expiry Date</TableHead>
                   <TableHead>From today</TableHead>
@@ -696,52 +675,25 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
               </TableHeader>
               <TableBody>
                 {complianceNotifications.map((notification) => {
-                  const trip = notification.notification_type === 'trip_cancellation'
-                  const td =
-                    notification.details &&
-                    typeof notification.details === 'object' &&
-                    !Array.isArray(notification.details)
-                      ? (notification.details as Record<string, unknown>)
-                      : {}
-                  const routeIdRaw = td.route_id
-                  const routeIdNum = typeof routeIdRaw === 'number' ? routeIdRaw : Number(routeIdRaw)
-                  const routeIdOk = Number.isFinite(routeIdNum) && routeIdNum > 0
                   const daysFromToday = daysFromTodayToExpiryDate(notification.expiry_date)
                   const needsAdmin = !!notification.admin_response_required
                   const userPinned = userAdminPinnedIds.has(notification.id)
+                  const subjectLabel = subjectKindLabel(notification.entity_type)
+                  const openSubjectLabel =
+                    notification.entity_type === 'vehicle' ? 'vehicle' : 'staff member'
 
                   const onRowActivate = () => {
                     if (openingCase === notification.id) return
-                    if (trip) {
-                      if (routeIdOk) {
-                        console.debug('[fleet] ComplianceNotificationsClient: trip row → route', routeIdNum)
-                        router.push(`/dashboard/routes/${routeIdNum}`)
-                      } else {
-                        console.debug(
-                          '[fleet] ComplianceNotificationsClient: trip row click, missing route_id',
-                          notification.id
-                        )
-                      }
-                      return
-                    }
                     console.debug('[fleet] ComplianceNotificationsClient: row click open case', notification.id)
                     void handleOpenCase(notification.id)
                   }
 
-                  const statusInner =
-                    trip && (notification.status === 'pending' || notification.status === 'sent') ? (
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5 text-violet-600" />
-                        <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-violet-100 text-violet-800">
-                          Trip cancellation
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(notification.status, daysFromToday)}
-                        {getStatusBadge(notification.status, daysFromToday)}
-                      </div>
-                    )
+                  const statusInner = (
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(notification.status, daysFromToday)}
+                      {getStatusBadge(notification.status, daysFromToday)}
+                    </div>
+                  )
 
                   return (
                   <TableRow
@@ -753,85 +705,33 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                       !userPinned && needsAdmin && 'bg-amber-50 border-l-4 border-amber-400'
                     )}
                     onClick={onRowActivate}
-                    title={
-                      trip
-                        ? routeIdOk
-                          ? 'Open route — click row'
-                          : 'Trip cancellation — use actions if no route link'
-                        : 'Open compliance case — click row; use icons for other actions'
-                    }
+                    title="Open compliance case — click row; use icons for other actions"
                   >
                     <TableCell>{statusInner}</TableCell>
                     <TableCell>
-                      {trip ? (
-                        <div>
-                          <div className="font-semibold text-slate-800">Trip cancellation</div>
-                          <div className="text-xs text-slate-500">
-                            {typeof td.reason === 'string' && td.reason.trim() ? td.reason : 'No reason provided'}
-                          </div>
-                          {typeof td.route_number === 'string' && td.route_number.trim() ? (
-                            <div className="text-xs text-slate-400 mt-0.5">
-                              {td.route_number}
-                              {typeof td.session_type === 'string' ? ` · ${td.session_type}` : ''}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : (
                         <div>
                           <div className="font-semibold text-slate-800">{notification.certificate_name}</div>
-                          <div className="text-xs text-slate-500">{notification.entity_type}</div>
+                          <div className="text-xs text-slate-500">{subjectLabel} certificate</div>
                         </div>
-                      )}
                     </TableCell>
                     <TableCell>
-                      {trip ? (
-                        routeIdOk ? (
-                          <Link
-                            href={`/dashboard/routes/${routeIdNum}`}
-                            className="text-primary hover:text-primary/80 hover:underline flex items-center gap-1 font-medium"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span>Open route</span>
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
-                        ) : (
-                          <span className="text-sm text-slate-500">Route unavailable</span>
-                        )
-                      ) : (
                         <Link
                           href={getEntityLink(notification.entity_type, notification.entity_id)}
                           className="text-primary hover:text-primary/80 hover:underline flex items-center gap-1 font-medium"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <span>View {notification.entity_type}</span>
+                          <span>Open {openSubjectLabel}</span>
                           <ExternalLink className="h-3 w-3" />
                         </Link>
-                      )}
                     </TableCell>
                     <TableCell>
-                      {trip ? (
-                        <div>
-                          <div className="text-sm font-medium text-slate-800">
-                            {typeof td.parent_name === 'string' && td.parent_name.trim()
-                              ? td.parent_name
-                              : 'Parent —'}
-                          </div>
-                          <div className="text-xs text-slate-400">
-                            {typeof td.passenger_name === 'string' && td.passenger_name.trim()
-                              ? td.passenger_name
-                              : 'Passenger —'}
-                          </div>
-                        </div>
-                      ) : (
                         <div>
                           <div className="text-sm font-medium text-slate-800">{notification.recipient?.full_name || 'N/A'}</div>
                           <div className="text-xs text-slate-400">{notification.recipient_email || 'No email'}</div>
                         </div>
-                      )}
                     </TableCell>
-                    <TableCell className="text-slate-600">{trip ? null : formatDate(notification.expiry_date)}</TableCell>
+                    <TableCell className="text-slate-600">{formatDate(notification.expiry_date)}</TableCell>
                     <TableCell>
-                      {trip ? null : (
                         <span
                           className={`font-semibold ${
                             daysFromToday < 0
@@ -843,12 +743,9 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                         >
                           {formatDaysFromTodayLabel(daysFromToday)}
                         </span>
-                      )}
                     </TableCell>
                     <TableCell>
-                      {trip ? (
-                        <div className="text-xs text-slate-400">—</div>
-                      ) : notification.admin_response_required && notification.employee_response_type ? (
+                      {notification.admin_response_required && notification.employee_response_type ? (
                         <div className="space-y-1">
                           <div className="flex items-center space-x-1">
                             <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
@@ -903,16 +800,11 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                           variant="ghost"
                           onClick={(e) => {
                             e.stopPropagation()
-                            if (trip && routeIdOk) {
-                              console.debug('[fleet] ComplianceNotificationsClient: folder → route', routeIdNum)
-                              router.push(`/dashboard/routes/${routeIdNum}`)
-                              return
-                            }
-                            if (!trip) void handleOpenCase(notification.id)
+                            void handleOpenCase(notification.id)
                           }}
                           disabled={openingCase === notification.id}
                           className="text-slate-600 hover:text-primary hover:bg-primary/10 h-8 w-8 p-0"
-                          title={trip ? (routeIdOk ? 'Open route' : 'No route link') : 'Open case'}
+                          title="Open case"
                         >
                           <FolderOpen className="h-4 w-4" />
                         </Button>
@@ -1028,7 +920,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
       {complianceResolved.length > 0 && (
         <details className="mt-6">
           <summary className="cursor-pointer text-sm text-slate-500 hover:text-slate-700 font-medium">
-            ▶ Show resolved/dismissed compliance notifications ({complianceResolved.length})
+            ▶ Show resolved / dismissed due dates ({complianceResolved.length})
           </summary>
           <Card className="mt-4 border-slate-200 rounded-2xl overflow-hidden">
             <CardContent className="p-0">
@@ -1037,33 +929,20 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                   <TableRow>
                     <TableHead>Status</TableHead>
                     <TableHead>Certificate</TableHead>
-                    <TableHead>Entity</TableHead>
+                    <TableHead>Subject</TableHead>
                     <TableHead>Expiry Date</TableHead>
                     <TableHead>Resolved At</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {complianceResolved.map((notification) => {
-                    const trip = notification.notification_type === 'trip_cancellation'
-                    const td =
-                      notification.details &&
-                      typeof notification.details === 'object' &&
-                      !Array.isArray(notification.details)
-                        ? (notification.details as Record<string, unknown>)
-                        : {}
-                    const routeIdRaw = td.route_id
-                    const routeIdNum = typeof routeIdRaw === 'number' ? routeIdRaw : Number(routeIdRaw)
-                    const routeIdOk = Number.isFinite(routeIdNum) && routeIdNum > 0
                     const daysResolved = daysFromTodayToExpiryDate(notification.expiry_date)
                     const needsAdmin = !!notification.admin_response_required
                     const userPinned = userAdminPinnedIds.has(notification.id)
+                    const openSubjectLabel =
+                      notification.entity_type === 'vehicle' ? 'vehicle' : 'staff member'
                     const onResolvedRowClick = () => {
                       if (openingCase === notification.id) return
-                      if (trip && routeIdOk) {
-                        console.debug('[fleet] ComplianceNotificationsClient: resolved trip row → route', routeIdNum)
-                        router.push(`/dashboard/routes/${routeIdNum}`)
-                        return
-                      }
                       console.debug('[fleet] ComplianceNotificationsClient: resolved row open case', notification.id)
                       void handleOpenCase(notification.id)
                     }
@@ -1077,37 +956,25 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                         !userPinned && needsAdmin && 'bg-amber-50 border-l-4 border-amber-400'
                       )}
                       onClick={onResolvedRowClick}
-                      title={trip && routeIdOk ? 'Open route — click row' : 'Open compliance case — click row'}
+                      title="Open compliance case — click row"
                     >
                       <TableCell>
                         {getStatusBadge(notification.status, daysResolved)}
                       </TableCell>
                       <TableCell className="font-medium text-slate-700">
-                        {trip
-                          ? `Trip · ${typeof td.reason === 'string' && td.reason.trim() ? td.reason : 'cancellation'}`
-                          : notification.certificate_name}
+                        {notification.certificate_name}
                       </TableCell>
                       <TableCell>
-                        {trip && routeIdOk ? (
-                          <Link
-                            href={`/dashboard/routes/${routeIdNum}`}
-                            className="text-primary hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Open route
-                          </Link>
-                        ) : (
                           <Link
                             href={getEntityLink(notification.entity_type, notification.entity_id)}
                             className="text-primary hover:underline"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            View {notification.entity_type}
+                            Open {openSubjectLabel}
                           </Link>
-                        )}
                       </TableCell>
                       <TableCell className="text-slate-600">
-                        {trip ? null : formatDate(notification.expiry_date)}
+                        {formatDate(notification.expiry_date)}
                       </TableCell>
                       <TableCell className="text-slate-500">
                         {notification.resolved_at ? formatDateTime(notification.resolved_at) : 'N/A'}

@@ -5,8 +5,8 @@ import { TableSkeleton } from '@/components/ui/Skeleton'
 import { ComplianceNotificationsClient } from './ComplianceNotificationsClient'
 import { orderComplianceNotificationsListForPage } from '@/lib/complianceNotificationsDisplay'
 
-/** Shown on Compliance page: certificate expiry + parent trip cancellations (same table, trip rows use `details` JSON). */
-const COMPLIANCE_PAGE_NOTIFICATION_TYPES = ['certificate_expiry', 'trip_cancellation'] as const
+/** Shown on Compliance page: vehicle + staff certificate due dates only (trip cancellations live under Route Activity). */
+const COMPLIANCE_PAGE_NOTIFICATION_TYPES = ['certificate_expiry'] as const
 
 async function getComplianceNotifications() {
   const supabase = await createClient()
@@ -73,7 +73,7 @@ async function getPendingCount() {
     return 0
   }
 
-  console.debug('[fleet] compliance page SSR: pending count (cert + trip cancellation)', count ?? 0)
+  console.debug('[fleet] compliance page SSR: pending count (certificate_expiry only)', count ?? 0)
   return count ?? 0
 }
 
@@ -81,15 +81,17 @@ export default async function CompliancePage() {
   const notifications = await getComplianceNotifications()
   const pendingCount = await getPendingCount()
 
+  console.debug('[fleet] compliance page: UI copy — due dates only; trip cancellations → /dashboard/route-activity')
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
 
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Compliance Notifications</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Compliance — due dates</h1>
             <p className="text-sm text-slate-500">
-              Certificate expiry and trip cancellation alerts (routes / passengers)
+              Vehicles and staff with certificates approaching or past expiry — parent trip cancellations are under Route Activity.
             </p>
           </div>
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { ROUTE_ACTIVITY_NOTIFICATIONS_CHANGED_EVENT } from '@/lib/complianceNotificationsEvents'
 
 export function useRouteActivityNotificationCount() {
   const [count, setCount] = useState<number>(0)
@@ -47,11 +48,17 @@ export function useRouteActivityNotificationCount() {
     const handleNotificationResolved = () => {
       fetchCount()
     }
+    const handleRouteActivityNotificationsChanged = () => {
+      console.debug('[fleet] useRouteActivityNotificationCount: routeActivityNotificationsChanged → refetch')
+      fetchCount()
+    }
     window.addEventListener('notificationResolved', handleNotificationResolved)
+    window.addEventListener(ROUTE_ACTIVITY_NOTIFICATIONS_CHANGED_EVENT, handleRouteActivityNotificationsChanged)
 
     return () => {
       supabase.removeChannel(channel)
       window.removeEventListener('notificationResolved', handleNotificationResolved)
+      window.removeEventListener(ROUTE_ACTIVITY_NOTIFICATIONS_CHANGED_EVENT, handleRouteActivityNotificationsChanged)
     }
   }, [])
 

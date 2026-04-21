@@ -4,11 +4,13 @@ import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { CheckCircle, XCircle, Clock, Car, AlertTriangle, Eye, Wrench, UserX } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Car, AlertTriangle, Eye, Wrench, UserX, AlertCircle } from 'lucide-react'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import Link from 'next/link'
 import ReplacementVehicleFinder from '@/components/ReplacementVehicleFinder'
 import { createClient } from '@/lib/supabase/client'
+import { ROUTE_ACTIVITY_NOTIFICATIONS_CHANGED_EVENT } from '@/lib/complianceNotificationsEvents'
+import { useResizableTableColumns } from '@/hooks/useResizableTableColumns'
 
 interface Notification {
   id: number
@@ -40,9 +42,14 @@ interface Notification {
 
 interface RouteActivityNotificationsClientProps {
   initialNotifications: Notification[]
+  /** Unresolved incidents — surfaced here so ops see them next to route disruption. */
+  openIncidentsCount?: number
 }
 
-export function RouteActivityNotificationsClient({ initialNotifications }: RouteActivityNotificationsClientProps) {
+export function RouteActivityNotificationsClient({
+  initialNotifications,
+  openIncidentsCount = 0,
+}: RouteActivityNotificationsClientProps) {
   const [notifications, setNotifications] = useState(initialNotifications)
   const [resolving, setResolving] = useState<number | null>(null)
   const [showReplacementFinder, setShowReplacementFinder] = useState(false)
@@ -55,6 +62,23 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
   const [acknowledging, setAcknowledging] = useState<number | null>(null)
   const previousNotificationIds = useRef<Set<number>>(new Set(initialNotifications.map(n => n.id)))
   const audioContextRef = useRef<AudioContext | null>(null)
+
+  const { colGroup: parentsColGroup, resizeHandle: parentsResizeCol } = useResizableTableColumns(
+    'fleet.routeActivity.cols.parents',
+    [112, 128, 92, 112, 176, 104, 84]
+  )
+  const { colGroup: breakdownColGroup, resizeHandle: breakdownResizeCol } = useResizableTableColumns(
+    'fleet.routeActivity.cols.breakdown',
+    [76, 108, 96, 224, 128, 84]
+  )
+  const { colGroup: delayColGroup, resizeHandle: delayResizeCol } = useResizableTableColumns(
+    'fleet.routeActivity.cols.delay',
+    [128, 104, 96, 176, 132, 76]
+  )
+  const { colGroup: resolvedColGroup, resizeHandle: resolvedResizeCol } = useResizableTableColumns(
+    'fleet.routeActivity.cols.resolved',
+    [104, 104, 268, 124]
+  )
 
   // Initialize AudioContext
   useEffect(() => {
@@ -129,7 +153,7 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
         body = 'A vehicle breakdown has been reported'
       }
     } else if (notification.notification_type === 'driver_tardiness') {
-      title = 'Driver Tardiness Reported'
+      title = 'Route delay reported'
       const details = notification.details
       if (details && typeof details === 'object') {
         const driverName = details.driver_name || 'Unknown Driver'
@@ -137,7 +161,7 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
         const reason = details.reason || 'No reason provided'
         body = `${driverName} - Route: ${routeNum} - ${reason}`
       } else {
-        body = 'A driver tardiness report has been submitted'
+        body = 'A route delay report has been submitted'
       }
     } else {
       title = 'New Route Activity Notification'
@@ -417,6 +441,12 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
     }
   }
 
+  useEffect(() => {
+    console.debug(
+      '[fleet] RouteActivityNotificationsClient: resizable table columns (drag header right edge); widths persist in localStorage'
+    )
+  }, [])
+
   // Auto-refresh every 20 seconds
   useEffect(() => {
     const interval = setInterval(() => {
@@ -434,6 +464,13 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
     // Initial fetch
     fetchNotifications()
     fetchParentCancellations()
+
+    const onRouteActivityChanged = () => {
+      console.debug('[fleet] RouteActivityNotificationsClient: routeActivityNotificationsChanged → refetch')
+      void fetchNotifications()
+      void fetchParentCancellations()
+    }
+    window.addEventListener(ROUTE_ACTIVITY_NOTIFICATIONS_CHANGED_EVENT, onRouteActivityChanged)
 
     // Subscribe to real-time changes
     const channel = supabase
@@ -466,6 +503,7 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
       .subscribe()
 
     return () => {
+      window.removeEventListener(ROUTE_ACTIVITY_NOTIFICATIONS_CHANGED_EVENT, onRouteActivityChanged)
       supabase.removeChannel(channel)
     }
   }, [])
@@ -716,25 +754,212 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
 
   return (
     <div className="space-y-6">
-      {/* Breakdown Notifications - Clean Table */}
-      {breakdownNotifications.length > 0 && (
+      {openIncidentsCount > 0 && (
+        <Card className="border-rose-200 overflow-hidden rounded-2xl bg-rose-50/30">
+          <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-6 w-6 shrink-0 text-rose-600 mt-0.5" aria-hidden />
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Urgent incidents</h2>
+                <p className="text-sm text-slate-600">
+                  {openIncidentsCount} open incident{openIncidentsCount === 1 ? '' : 's'} need attention in Incidents.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/dashboard/incidents"
+              className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 transition-colors shrink-0"
+            >
+              Open incidents
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {/* Parents — trip cancellations */}
+      {parentCancellations && parentCancellations.length > 0 && (
         <Card className="border-slate-200 overflow-hidden rounded-2xl">
           <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-800">Vehicle Breakdowns</h2>
-            <span className="px-3 py-1 bg-rose-50 text-rose-700 rounded-full text-sm font-semibold border border-rose-100">
-              {breakdownNotifications.length} Active
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Parents</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Trip cancellations reported by parents or guardians</p>
+            </div>
+            <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-semibold border border-blue-100">
+              {parentCancellations.length} to review
             </span>
           </div>
           <CardContent className="p-0 overflow-x-auto">
-            <Table>
+            <Table className="table-fixed w-full">
+              {parentsColGroup}
               <TableHeader>
                 <TableRow>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Vehicle</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Reported</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="relative">Passenger{parentsResizeCol(0)}</TableHead>
+                  <TableHead className="relative">Parent/Guardian{parentsResizeCol(1)}</TableHead>
+                  <TableHead className="relative">Route{parentsResizeCol(2)}</TableHead>
+                  <TableHead className="relative">Session / Date{parentsResizeCol(3)}</TableHead>
+                  <TableHead className="relative">Reason{parentsResizeCol(4)}</TableHead>
+                  <TableHead className="relative">Status{parentsResizeCol(5)}</TableHead>
+                  <TableHead className="relative text-right">Actions{parentsResizeCol(6)}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {parentCancellations.map((cancellation: any) => {
+                  const passenger = cancellation.passenger
+                  const route = cancellation.route
+                  const session = cancellation.route_session
+                  const parentContact = cancellation.parent_contact
+                  const routeIdForLink = cancellation.route_id
+                    || (session?.route_id ? parseInt(session.route_id) : null)
+                    || (passenger?.route_id ? parseInt(passenger.route_id) : null)
+                  const absenceDate = session?.session_date
+                    || cancellation.absence_date
+                    || cancellation.session_date
+
+                  return (
+                    <TableRow key={cancellation.id} className="hover:bg-slate-50">
+                      <TableCell className="min-w-0 align-top">
+                        {passenger && passenger.full_name ? (
+                          <Link
+                            href={`/dashboard/passengers/${cancellation.passenger_id}`}
+                            className="font-medium text-slate-900 hover:text-navy hover:underline text-sm break-words"
+                          >
+                            {passenger.full_name}
+                          </Link>
+                        ) : cancellation.passenger_id ? (
+                          <span className="text-slate-400 text-sm">ID: {cancellation.passenger_id}</span>
+                        ) : (
+                          <span className="text-slate-400 text-sm">Unknown</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top">
+                        {parentContact && parentContact.full_name ? (
+                          <div>
+                            <Link
+                              href={`/dashboard/parent-contacts/${parentContact.id}`}
+                              className="text-sm font-medium text-slate-900 hover:text-navy hover:underline break-words"
+                            >
+                              {parentContact.full_name}
+                            </Link>
+                            {parentContact.phone_number && (
+                              <div className="text-xs text-slate-500">{parentContact.phone_number}</div>
+                            )}
+                          </div>
+                        ) : cancellation.reported_by_email || cancellation.reported_by ? (
+                          <span className="text-slate-500 text-sm break-all block">{cancellation.reported_by_email || cancellation.reported_by}</span>
+                        ) : (
+                          <span className="text-slate-400 text-sm">N/A</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top">
+                        {route && route.route_number ? (
+                          <Link
+                            href={`/dashboard/routes/${routeIdForLink || route.id}`}
+                            className="text-sm text-slate-600 hover:text-navy hover:underline"
+                          >
+                            {route.route_number}
+                          </Link>
+                        ) : routeIdForLink ? (
+                          <Link
+                            href={`/dashboard/routes/${routeIdForLink}`}
+                            className="text-sm text-slate-600 hover:text-navy hover:underline"
+                          >
+                            #{routeIdForLink}
+                          </Link>
+                        ) : (
+                          <span className="text-sm text-slate-400">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top">
+                        <div className="text-sm text-slate-700">
+                          {session?.session_type || cancellation.session_type || 'N/A'}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {absenceDate ? formatDate(absenceDate) : '—'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top">
+                        <span className="text-sm text-slate-700 whitespace-normal break-words" title={cancellation.reason || cancellation.notes}>
+                          {cancellation.reason || cancellation.notes || 'No reason'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top">
+                        {cancellation.acknowledged_by_user ? (
+                          <div className="text-xs">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                              <CheckCircle className="h-3 w-3" />
+                              Ack
+                            </span>
+                            <div className="text-slate-500 mt-1 break-words">
+                              {cancellation.acknowledged_by_user.full_name || 'User'}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-xs">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                              <Clock className="h-3 w-3" />
+                              Pending
+                            </span>
+                            <div className="text-slate-400 mt-1">
+                              {formatDate(cancellation.created_at || cancellation.reported_at)}
+                            </div>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top text-right">
+                        {cancellation.acknowledged_at ? (
+                          <span className="text-xs text-slate-400">Done</span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleAcknowledgeCancellation(cancellation.id)}
+                            disabled={acknowledging === cancellation.id}
+                            className="h-7 px-2 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                            title="Mark as Acknowledged"
+                          >
+                            {acknowledging === cancellation.id ? (
+                              '...'
+                            ) : (
+                              <>
+                                <CheckCircle className="mr-1 h-3 w-3" />
+                                Ack
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Breakdown */}
+      {breakdownNotifications.length > 0 && (
+        <Card className="border-slate-200 overflow-hidden rounded-2xl">
+          <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Breakdown</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Vehicle breakdown reports on route</p>
+            </div>
+            <span className="px-3 py-1 bg-rose-50 text-rose-700 rounded-full text-sm font-semibold border border-rose-100">
+              {breakdownNotifications.length} active
+            </span>
+          </div>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table className="table-fixed w-full">
+              {breakdownColGroup}
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="relative">Status{breakdownResizeCol(0)}</TableHead>
+                  <TableHead className="relative">Vehicle{breakdownResizeCol(1)}</TableHead>
+                  <TableHead className="relative">Route{breakdownResizeCol(2)}</TableHead>
+                  <TableHead className="relative">Description{breakdownResizeCol(3)}</TableHead>
+                  <TableHead className="relative">Reported{breakdownResizeCol(4)}</TableHead>
+                  <TableHead className="relative text-right">Actions{breakdownResizeCol(5)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -742,19 +967,19 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
                   const details = notification.details || {}
                   return (
                     <TableRow key={notification.id} className="hover:bg-slate-50">
-                      <TableCell>
+                      <TableCell className="min-w-0 align-top">
                         <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
                           <AlertTriangle className="h-3 w-3" />
-                          URGENT
+                          Live
                         </span>
                       </TableCell>
-                      <TableCell>
-                        <Link href={`/dashboard/vehicles/${notification.entity_id}`} className="font-medium text-slate-900 hover:text-violet-600">
+                      <TableCell className="min-w-0 align-top">
+                        <Link href={`/dashboard/vehicles/${notification.entity_id}`} className="font-medium text-slate-900 hover:text-violet-600 break-words">
                           Vehicle {notification.entity_id}
                         </Link>
-                        <div className="text-xs text-slate-500">{details.location || 'No location'}</div>
+                        <div className="text-xs text-slate-500 break-words">{details.location || 'No location'}</div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="min-w-0 align-top">
                         {details.route_id ? (
                           <Link href={`/dashboard/routes/${details.route_id}`} className="text-sm text-slate-600 hover:text-violet-600 hover:underline">
                             Route {details.route_number || details.route_id}
@@ -763,15 +988,15 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
                           <span className="text-sm text-slate-400">N/A</span>
                         )}
                       </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-slate-700 line-clamp-2" title={details.description}>
+                      <TableCell className="min-w-0 align-top">
+                        <span className="text-sm text-slate-700 whitespace-normal break-words" title={details.description}>
                           {details.description || 'No description provided'}
                         </span>
                       </TableCell>
-                      <TableCell className="text-slate-500 text-sm">
+                      <TableCell className="text-slate-500 text-sm min-w-0 align-top whitespace-nowrap">
                         {formatDateTime(details.reported_at || notification.created_at)}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right min-w-0 align-top">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
@@ -803,25 +1028,29 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
         </Card>
       )}
 
-      {/* Tardiness Notifications - Clean Table */}
+      {/* Delay (driver late running) */}
       {tardinessNotifications.length > 0 && (
         <Card className="border-slate-200 overflow-hidden rounded-2xl">
           <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-800">Driver Tardiness</h2>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Delay</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Late running / driver delay reports awaiting review</p>
+            </div>
             <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-sm font-semibold border border-amber-100">
-              {tardinessNotifications.length} Pending
+              {tardinessNotifications.length} pending
             </span>
           </div>
           <CardContent className="p-0 overflow-x-auto">
-            <Table>
+            <Table className="table-fixed w-full">
+              {delayColGroup}
               <TableHeader>
                 <TableRow>
-                  <TableHead>Driver</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead>Session</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Reported</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="relative">Driver (delay){delayResizeCol(0)}</TableHead>
+                  <TableHead className="relative">Route{delayResizeCol(1)}</TableHead>
+                  <TableHead className="relative">Session{delayResizeCol(2)}</TableHead>
+                  <TableHead className="relative">Reason{delayResizeCol(3)}</TableHead>
+                  <TableHead className="relative">Reported{delayResizeCol(4)}</TableHead>
+                  <TableHead className="relative text-right">Actions{delayResizeCol(5)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -829,12 +1058,12 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
                   const details = notification.details || {}
                   return (
                     <TableRow key={notification.id} className="hover:bg-slate-50">
-                      <TableCell>
-                        <Link href={`/dashboard/drivers/${notification.entity_id}`} className="font-medium text-slate-900 hover:text-violet-600">
+                      <TableCell className="min-w-0 align-top">
+                        <Link href={`/dashboard/drivers/${notification.entity_id}`} className="font-medium text-slate-900 hover:text-violet-600 break-words">
                           {details.driver_name || 'Unknown Driver'}
                         </Link>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="min-w-0 align-top">
                         {details.route_id ? (
                           <Link href={`/dashboard/routes/${details.route_id}`} className="text-sm text-slate-600 hover:text-violet-600 hover:underline">
                             Route {details.route_number || details.route_id}
@@ -843,21 +1072,21 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
                           <span className="text-sm text-slate-400">{details.route_number || 'N/A'}</span>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="min-w-0 align-top">
                         <div className="text-sm text-slate-700">
                           {details.session_type || 'N/A'}
                         </div>
                         <div className="text-xs text-slate-500">{formatDate(notification.expiry_date)}</div>
                       </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-slate-700">
+                      <TableCell className="min-w-0 align-top">
+                        <span className="text-sm text-slate-700 whitespace-normal break-words">
                           {notification.certificate_name}
                         </span>
                       </TableCell>
-                      <TableCell className="text-slate-500 text-sm">
+                      <TableCell className="text-slate-500 text-sm min-w-0 align-top whitespace-nowrap">
                         {details.reported_at ? formatDateTime(details.reported_at) : formatDateTime(notification.created_at)}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right min-w-0 align-top">
                         {showTardinessModal === notification.id ? (
                           <div className="absolute right-4 mt-2 z-10 bg-white shadow-xl border border-slate-200 rounded-lg p-3 w-64">
                             <textarea
@@ -901,7 +1130,7 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
                             variant="ghost"
                             onClick={() => setShowTardinessModal(notification.id)}
                             className="h-8 w-8 p-0 text-slate-400 hover:text-violet-600 hover:bg-violet-50"
-                            title="Review Report"
+                            title="Review delay report"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -916,173 +1145,12 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
         </Card>
       )}
 
-      {/* Parent Cancellations - Clean Table */}
-      {parentCancellations && parentCancellations.length > 0 && (
-        <Card className="border-slate-200 overflow-hidden rounded-2xl">
-          <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-800">Parent Cancellations</h2>
-            <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-semibold border border-blue-100">
-              {parentCancellations.length} Active
-            </span>
-          </div>
-          <CardContent className="p-0 overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Passenger</TableHead>
-                  <TableHead>Parent/Guardian</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead>Session / Date</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right w-28">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {parentCancellations.map((cancellation: any) => {
-                  // Get passenger, route, session, and parent contact from enriched data
-                  const passenger = cancellation.passenger
-                  const route = cancellation.route
-                  const session = cancellation.route_session
-                  const parentContact = cancellation.parent_contact
-
-                  // Determine route ID for link (use route_id from report, session, or passenger's route_id)
-                  const routeIdForLink = cancellation.route_id
-                    || (session?.route_id ? parseInt(session.route_id) : null)
-                    || (passenger?.route_id ? parseInt(passenger.route_id) : null)
-
-                  const absenceDate = session?.session_date
-                    || cancellation.absence_date
-                    || cancellation.session_date
-
-                  return (
-                    <TableRow key={cancellation.id} className="hover:bg-slate-50">
-                      <TableCell>
-                        {passenger && passenger.full_name ? (
-                          <Link
-                            href={`/dashboard/passengers/${cancellation.passenger_id}`}
-                            className="font-medium text-slate-900 hover:text-navy hover:underline text-sm"
-                          >
-                            {passenger.full_name}
-                          </Link>
-                        ) : cancellation.passenger_id ? (
-                          <span className="text-slate-400 text-sm">ID: {cancellation.passenger_id}</span>
-                        ) : (
-                          <span className="text-slate-400 text-sm">Unknown</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {parentContact && parentContact.full_name ? (
-                          <div>
-                            <Link
-                              href={`/dashboard/parent-contacts/${parentContact.id}`}
-                              className="text-sm font-medium text-slate-900 hover:text-navy hover:underline"
-                            >
-                              {parentContact.full_name}
-                            </Link>
-                            {parentContact.phone_number && (
-                              <div className="text-xs text-slate-500">{parentContact.phone_number}</div>
-                            )}
-                          </div>
-                        ) : cancellation.reported_by_email || cancellation.reported_by ? (
-                          <span className="text-slate-500 text-sm truncate max-w-[120px] block">{cancellation.reported_by_email || cancellation.reported_by}</span>
-                        ) : (
-                          <span className="text-slate-400 text-sm">N/A</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {route && route.route_number ? (
-                          <Link
-                            href={`/dashboard/routes/${routeIdForLink || route.id}`}
-                            className="text-sm text-slate-600 hover:text-navy hover:underline"
-                          >
-                            {route.route_number}
-                          </Link>
-                        ) : routeIdForLink ? (
-                          <Link
-                            href={`/dashboard/routes/${routeIdForLink}`}
-                            className="text-sm text-slate-600 hover:text-navy hover:underline"
-                          >
-                            #{routeIdForLink}
-                          </Link>
-                        ) : (
-                          <span className="text-sm text-slate-400">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm text-slate-700">
-                          {session?.session_type || cancellation.session_type || 'N/A'}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {absenceDate ? formatDate(absenceDate) : '—'}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-slate-700 line-clamp-2 max-w-[150px]" title={cancellation.reason || cancellation.notes}>
-                          {cancellation.reason || cancellation.notes || 'No reason'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {cancellation.acknowledged_by_user ? (
-                          <div className="text-xs">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
-                              <CheckCircle className="h-3 w-3" />
-                              Ack
-                            </span>
-                            <div className="text-slate-500 mt-1 truncate max-w-[100px]">
-                              {cancellation.acknowledged_by_user.full_name || 'User'}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-xs">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                              <Clock className="h-3 w-3" />
-                              Pending
-                            </span>
-                            <div className="text-slate-400 mt-1">
-                              {formatDate(cancellation.created_at || cancellation.reported_at)}
-                            </div>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {cancellation.acknowledged_at ? (
-                          <span className="text-xs text-slate-400">Done</span>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleAcknowledgeCancellation(cancellation.id)}
-                            disabled={acknowledging === cancellation.id}
-                            className="h-7 px-2 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                            title="Mark as Acknowledged"
-                          >
-                            {acknowledging === cancellation.id ? (
-                              '...'
-                            ) : (
-                              <>
-                                <CheckCircle className="mr-1 h-3 w-3" />
-                                Ack
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {breakdownNotifications.length === 0 && tardinessNotifications.length === 0 && parentCancellations.length === 0 ? (
+      {breakdownNotifications.length === 0 && tardinessNotifications.length === 0 && parentCancellations.length === 0 && openIncidentsCount === 0 ? (
         <Card className="border-slate-200">
           <CardContent className="py-12 text-center">
             <CheckCircle className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-500 font-medium">No pending route activity</p>
-            <p className="text-sm text-slate-400">Everything is running smoothly</p>
+            <p className="text-slate-500 font-medium">No operational items here right now</p>
+            <p className="text-sm text-slate-400">No parent trip cancellations, breakdowns, or delay reports pending — and no open incidents banner.</p>
           </CardContent>
         </Card>
       ) : null}
@@ -1090,49 +1158,52 @@ export function RouteActivityNotificationsClient({ initialNotifications }: Route
       {routeActivityResolved.length > 0 && (
         <details className="mt-6">
           <summary className="cursor-pointer text-sm text-slate-500 hover:text-slate-700 font-medium">
-            ▶ Show resolved/dismissed activity ({routeActivityResolved.length})
+            ▶ Show resolved / dismissed breakdown and delay ({routeActivityResolved.length})
           </summary>
           <Card className="mt-4 border-slate-200 rounded-2xl overflow-hidden">
-            <CardContent className="p-0">
-              <Table>
+            <CardContent className="p-0 overflow-x-auto">
+              <Table className="table-fixed w-full">
+                {resolvedColGroup}
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead>Resolved At</TableHead>
+                    <TableHead className="relative">Type{resolvedResizeCol(0)}</TableHead>
+                    <TableHead className="relative">Status{resolvedResizeCol(1)}</TableHead>
+                    <TableHead className="relative">Details{resolvedResizeCol(2)}</TableHead>
+                    <TableHead className="relative">Resolved At{resolvedResizeCol(3)}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {routeActivityResolved.map((notification) => (
                     <TableRow key={notification.id} className="hover:bg-slate-50">
-                      <TableCell>
+                      <TableCell className="min-w-0 align-top">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold ${notification.notification_type === 'vehicle_breakdown' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
                           {notification.notification_type === 'vehicle_breakdown' ? <Wrench className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                          {notification.notification_type === 'vehicle_breakdown' ? 'Breakdown' : 'Tardiness'}
+                          {notification.notification_type === 'vehicle_breakdown' ? 'Breakdown' : 'Delay'}
                         </span>
                       </TableCell>
-                      <TableCell>{getStatusBadge(notification.status)}</TableCell>
-                      <TableCell>
-                        {notification.notification_type === 'vehicle_breakdown' ? (
-                          <Link href={`/dashboard/vehicles/${notification.entity_id}`} className="text-slate-700 hover:text-violet-600 hover:underline font-medium">
-                            Vehicle {notification.entity_id}
-                          </Link>
-                        ) : (
-                          <Link href={`/dashboard/drivers/${notification.entity_id}`} className="text-slate-700 hover:text-violet-600 hover:underline font-medium">
-                            Driver {notification.entity_id}
-                          </Link>
-                        )}
-                        {notification.details?.route_id && (
-                          <span className="ml-2 text-slate-500">
-                            {' • '}
-                            <Link href={`/dashboard/routes/${notification.details.route_id}`} className="hover:text-violet-600 hover:underline">
-                              Route {notification.details.route_number || notification.details.route_id}
+                      <TableCell className="min-w-0 align-top">{getStatusBadge(notification.status)}</TableCell>
+                      <TableCell className="min-w-0 align-top">
+                        <div className="whitespace-normal break-words text-sm">
+                          {notification.notification_type === 'vehicle_breakdown' ? (
+                            <Link href={`/dashboard/vehicles/${notification.entity_id}`} className="text-slate-700 hover:text-violet-600 hover:underline font-medium">
+                              Vehicle {notification.entity_id}
                             </Link>
-                          </span>
-                        )}
+                          ) : (
+                            <Link href={`/dashboard/drivers/${notification.entity_id}`} className="text-slate-700 hover:text-violet-600 hover:underline font-medium">
+                              Driver {notification.entity_id}
+                            </Link>
+                          )}
+                          {notification.details?.route_id && (
+                            <span className="text-slate-500">
+                              {' · '}
+                              <Link href={`/dashboard/routes/${notification.details.route_id}`} className="hover:text-violet-600 hover:underline">
+                                Route {notification.details.route_number || notification.details.route_id}
+                              </Link>
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-slate-500">
+                      <TableCell className="text-slate-500 min-w-0 align-top whitespace-nowrap text-sm">
                         {notification.resolved_at ? formatDateTime(notification.resolved_at) : 'N/A'}
                       </TableCell>
                     </TableRow>

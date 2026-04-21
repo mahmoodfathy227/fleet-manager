@@ -3,10 +3,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { emitComplianceNotificationsChanged } from '@/lib/complianceNotificationsEvents'
+import {
+  emitComplianceNotificationsChanged,
+  emitRouteActivityNotificationsChanged,
+} from '@/lib/complianceNotificationsEvents'
 import { Bell, X } from 'lucide-react'
 
 const COMPLIANCE_PATH = '/dashboard/compliance'
+const ROUTE_ACTIVITY_PATH = '/dashboard/route-activity'
 const TOAST_MS = 8000
 const MAX_TOASTS = 5
 
@@ -19,6 +23,8 @@ type ToastItem = {
   entityAndCertLine: string
   /** Resolved person name, or null */
   personLine: string | null
+  openPath: string
+  openHint: string
 }
 
 function parseDetails(raw: unknown): Record<string, unknown> | null {
@@ -144,6 +150,15 @@ export function NotificationRealtimeToasts() {
       void (async () => {
         const person = await resolvePersonLabel(row)
         const personLine = person.trim() ? person.trim() : null
+        const ntype = typeof row.notification_type === 'string' ? row.notification_type : ''
+        const openPath =
+          ntype === 'trip_cancellation' || ntype === 'vehicle_breakdown' || ntype === 'driver_tardiness'
+            ? ROUTE_ACTIVITY_PATH
+            : COMPLIANCE_PATH
+        const openHint =
+          openPath === ROUTE_ACTIVITY_PATH
+            ? 'Tap to open Route Activity'
+            : 'Tap to open Compliance — due dates'
 
         const item: ToastItem = {
           key,
@@ -151,6 +166,8 @@ export function NotificationRealtimeToasts() {
           notificationTypeLine,
           entityAndCertLine,
           personLine,
+          openPath,
+          openHint,
         }
 
         setToasts((prev) => [...prev, item].slice(-MAX_TOASTS))
@@ -158,8 +175,15 @@ export function NotificationRealtimeToasts() {
         const timer = setTimeout(() => removeToast(key), TOAST_MS)
         timersRef.current.set(key, timer)
 
-        if (row.notification_type === 'certificate_expiry' || row.notification_type === 'trip_cancellation') {
+        if (row.notification_type === 'certificate_expiry') {
           emitComplianceNotificationsChanged('realtime-notifications-insert-toast')
+        }
+        if (
+          row.notification_type === 'trip_cancellation' ||
+          row.notification_type === 'vehicle_breakdown' ||
+          row.notification_type === 'driver_tardiness'
+        ) {
+          emitRouteActivityNotificationsChanged('realtime-notifications-insert-toast')
         }
         console.debug(
           '[fleet] NotificationRealtimeToasts: new row',
@@ -167,18 +191,19 @@ export function NotificationRealtimeToasts() {
           notificationTypeLine,
           entityAndCertLine,
           personLine,
-          row.notification_type
+          row.notification_type,
+          openPath
         )
       })()
     },
     [removeToast]
   )
 
-  const goCompliance = useCallback(
-    (key: string) => {
+  const goFromToast = useCallback(
+    (key: string, path: string) => {
       removeToast(key)
-      router.push(COMPLIANCE_PATH)
-      console.debug('[fleet] NotificationRealtimeToasts: navigate', COMPLIANCE_PATH)
+      router.push(path)
+      console.debug('[fleet] NotificationRealtimeToasts: navigate', path)
     },
     [router, removeToast]
   )
@@ -230,7 +255,7 @@ export function NotificationRealtimeToasts() {
           <div className="flex items-stretch">
             <button
               type="button"
-              onClick={() => goCompliance(t.key)}
+              onClick={() => goFromToast(t.key, t.openPath)}
               className="flex min-w-0 flex-1 items-start gap-3 p-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100"
             >
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -244,7 +269,7 @@ export function NotificationRealtimeToasts() {
                 {t.personLine ? (
                   <span className="block text-xs font-medium text-slate-800 line-clamp-2">{t.personLine}</span>
                 ) : null}
-                <span className="mt-1 block text-[11px] font-medium text-primary">Tap to open Compliance →</span>
+                <span className="mt-1 block text-[11px] font-medium text-primary">{t.openHint} →</span>
               </span>
             </button>
             <button
