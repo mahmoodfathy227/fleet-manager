@@ -45,15 +45,16 @@ function getEntityLink(entityType: string, entityId: number) {
 export default async function ComplianceCasesPage() {
   const cases = await getComplianceCases()
 
-  console.debug('[fleet] compliance cases page: empty-state copy → Due dates tab')
+  console.debug('[fleet] compliance updates list page: empty-state copy → Reminder list tab')
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Compliance Cases</h1>
-          <p className="text-sm text-slate-500">
-            Track application status, date applied, and appointment date. Open a case from the Due dates tab.
+          <h1 className="text-2xl font-bold text-slate-900">Updates</h1>
+          <p className="text-sm text-slate-600 leading-relaxed max-w-2xl">
+            Follow one paperwork item from start to finish (application status, dates, notes). Start from the{' '}
+            <strong>Reminder list</strong> tab by clicking a row or the <strong>Updates</strong> button.
           </p>
         </div>
       </div>
@@ -76,12 +77,15 @@ export default async function ComplianceCasesPage() {
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-12">
                   <FolderOpen className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500 font-medium">No compliance cases yet</p>
-                  <p className="text-sm text-slate-400">
-                    Open a case from Due dates by clicking &quot;Open case&quot; on a certificate row
+                  <p className="text-slate-500 font-medium">No updates yet</p>
+                  <p className="text-sm text-slate-500 max-w-md mx-auto">
+                    Go to the <strong>Reminder list</strong> tab and click a row, or press <strong>Updates</strong>, on any
+                    reminder.
                   </p>
                   <Link href="/dashboard/compliance" className="inline-block mt-3">
-                    <Button variant="secondary" size="sm">Go to due dates</Button>
+                    <Button variant="secondary" size="sm">
+                      Go to reminder list
+                    </Button>
                   </Link>
                 </TableCell>
               </TableRow>
@@ -124,7 +128,7 @@ export default async function ComplianceCasesPage() {
                     <TableCell>
                       <Link href={`/dashboard/compliance/cases/${row.id}`} prefetch={true}>
                         <Button variant="ghost" size="sm" className="text-primary hover:bg-primary/10">
-                          <Eye className="h-4 w-4 mr-1" /> View
+                          <Eye className="h-4 w-4 mr-1" /> Updates
                         </Button>
                       </Link>
                     </TableCell>

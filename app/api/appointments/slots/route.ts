@@ -10,17 +10,26 @@ function positiveIntId(value: unknown): number | null {
   return null
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient()
+    const { searchParams } = new URL(request.url)
+    // Dashboard: newest-created first. Public booking page omits this and keeps chronological slot times.
+    const order = searchParams.get('order')
+    const newestFirst = order === 'newest'
+    console.debug('[fleet] GET /api/appointments/slots: order mode', newestFirst ? 'newest (created_at desc)' : 'slot_start asc')
+
     // Avoid embedding `employees(...)` here: PostgREST requires a registered FK from
     // appointment_slots → employees; if the DB has assigned_employee_id without that FK, GET 500s (PGRST200).
-    const { data: slots, error } = await supabase
-      .from('appointment_slots')
-      .select(
-        '*, appointment_bookings(id, notification_id, booked_by_email, booked_by_name, status, booked_at, notes)'
-      )
-      .order('slot_start', { ascending: true })
+    let query = supabase.from('appointment_slots').select(
+      '*, appointment_bookings(id, notification_id, booked_by_email, booked_by_name, status, booked_at, notes)'
+    )
+    if (newestFirst) {
+      query = query.order('created_at', { ascending: false }).order('id', { ascending: false })
+    } else {
+      query = query.order('slot_start', { ascending: true })
+    }
+    const { data: slots, error } = await query
 
     if (error) throw error
 
@@ -65,6 +74,13 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { slotStart, slotEnd, notes, plannedBookingContext, assignedEmployeeId } = body
+    console.debug('[fleet] POST /api/appointments/slots: body', {
+      slotStart,
+      slotEnd,
+      hasNotes: !!notes,
+      hasPlannedContext: typeof plannedBookingContext === 'string' && plannedBookingContext.trim() !== '',
+      assignedEmployeeId: assignedEmployeeId ?? null,
+    })
 
     if (!slotStart || !slotEnd) {
       return NextResponse.json({ error: 'slotStart and slotEnd are required' }, { status: 400 })

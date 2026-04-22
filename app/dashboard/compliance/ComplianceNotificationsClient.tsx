@@ -4,40 +4,106 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { Mail, CheckCircle, XCircle, AlertTriangle, Clock, ExternalLink, X, FolderOpen, ShieldAlert } from 'lucide-react'
+import {
+  Mail,
+  CheckCircle,
+  XCircle,
+  Clock,
+  ExternalLink,
+  X,
+  ClipboardList,
+  ArrowUp,
+  ArrowDown,
+  Car,
+  User,
+  HelpCircle,
+} from 'lucide-react'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
-import { usePermissions } from '@/hooks/usePermissions'
 import Link from 'next/link'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
 import { createClient } from '@/lib/supabase/client'
 import {
-  type ComplianceListSortMode,
   daysFromTodayToExpiryDate,
   formatDaysFromTodayLabel,
   orderComplianceNotificationsListForPage,
   sortPendingComplianceByMode,
   sortResolvedComplianceByMode,
 } from '@/lib/complianceNotificationsDisplay'
-import { loadUserAdminPinIds, saveUserAdminPinIds } from '@/lib/complianceUserAdminPins'
+import { withEntityDisplayLabels } from '@/lib/complianceEntityDisplayLabel'
 
 const COMPLIANCE_DASHBOARD_NOTIFICATION_TYPES = ['certificate_expiry'] as const
 
-function subjectKindLabel(entityType: string | null): string {
+/** Leading row icon: vehicle (blue) vs staff (green) in a clear roundel. */
+function EntitySubjectKindIcon({ entityType }: { entityType: string | null }) {
   const t = typeof entityType === 'string' ? entityType.trim().toLowerCase() : ''
-  if (t === 'vehicle') return 'Vehicle'
-  if (t === 'driver' || t === 'assistant') return 'Staff'
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Record'
+  const roundel = 'inline-flex h-10 w-10 items-center justify-center rounded-full shadow-sm shrink-0'
+  if (t === 'vehicle') {
+    return (
+      <span
+        className={cn(
+          roundel,
+          'bg-sky-100 text-sky-700 ring-2 ring-sky-300/90'
+        )}
+        title="Vehicle — document or check for this vehicle"
+      >
+        <Car className="h-5 w-5" strokeWidth={2.35} aria-hidden />
+        <span className="sr-only">Vehicle</span>
+      </span>
+    )
+  }
+  if (t === 'driver' || t === 'assistant') {
+    return (
+      <span
+        className={cn(
+          roundel,
+          'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300/90'
+        )}
+        title="Staff — document or check for this person"
+      >
+        <User className="h-5 w-5" strokeWidth={2.35} aria-hidden />
+        <span className="sr-only">Staff</span>
+      </span>
+    )
+  }
+  return (
+    <span
+      className={cn(roundel, 'bg-amber-100 text-amber-800 ring-2 ring-amber-300/80')}
+      title="Other reminder type"
+    >
+      <HelpCircle className="h-5 w-5" strokeWidth={2.35} aria-hidden />
+      <span className="sr-only">Other</span>
+    </span>
+  )
 }
 
 type ComplianceCategoryFilter = 'all' | 'vehicle' | 'staff'
 
 function complianceCategoryFilterLabel(value: string): string {
-  if (value === 'all') return 'All'
-  if (value === 'vehicle') return 'Vehicles'
-  if (value === 'staff') return 'Staff'
+  if (value === 'all') return 'Everything'
+  if (value === 'vehicle') return 'Vehicles only'
+  if (value === 'staff') return 'Staff only'
   return value
+}
+
+type TimeLeftColumnSort = 'default' | 'asc' | 'desc'
+
+/** Days-until-expiry sort: asc = least time left first; desc = most time left first. */
+function sortPendingByTimeLeft<T extends { id: number; expiry_date: string | null; created_at: string }>(
+  items: T[],
+  dir: 'asc' | 'desc'
+): T[] {
+  const cmp = (a: T, b: T) => {
+    const da = daysFromTodayToExpiryDate(a.expiry_date)
+    const db = daysFromTodayToExpiryDate(b.expiry_date)
+    if (da !== db) return dir === 'asc' ? da - db : db - da
+    const ta = Date.parse(a.created_at)
+    const tb = Date.parse(b.created_at)
+    if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta
+    return b.id - a.id
+  }
+  return [...items].sort(cmp)
 }
 
 interface Notification {
@@ -66,6 +132,8 @@ interface Notification {
     full_name: string
     personal_email: string
   }
+  /** Set by SSR / refetch: vehicle reg/identifier or staff name for the Related to column. */
+  entity_display_label?: string
 }
 
 interface ComplianceNotificationsClientProps {
@@ -73,13 +141,9 @@ interface ComplianceNotificationsClientProps {
 }
 
 export function ComplianceNotificationsClient({ initialNotifications }: ComplianceNotificationsClientProps) {
-  const { has, loading: permissionsLoading } = usePermissions()
-  const canAdminReviewFocus = has('compliance.write') || has('users.manage')
-
   const [notifications, setNotifications] = useState(initialNotifications)
   const [sendingEmail, setSendingEmail] = useState<number | null>(null)
   const [dismissing, setDismissing] = useState<number | null>(null)
-  const [resolving, setResolving] = useState<number | null>(null)
   const [emailEditorOpen, setEmailEditorOpen] = useState(false)
   const [editingNotification, setEditingNotification] = useState<Notification | null>(null)
   const [emailSubject, setEmailSubject] = useState('')
@@ -90,43 +154,51 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
   const [selectedRecipient, setSelectedRecipient] = useState<string>('')
   const [availableRecipients, setAvailableRecipients] = useState<Array<{ email: string; name: string; type: string }>>([])
   const [loadingRecipients, setLoadingRecipients] = useState(false)
-  const [openingCase, setOpeningCase] = useState<number | null>(null)
-  const [sortMode, setSortMode] = useState<ComplianceListSortMode>('newest')
+  const [openingUpdates, setOpeningUpdates] = useState<number | null>(null)
+  const [resolving, setResolving] = useState<number | null>(null)
+  /** When Time left sort is cleared (↑↓ off), pending list uses newest reminders first (by created_at). */
+  const listSortMode = 'newest' as const
   const [entityFilter, setEntityFilter] = useState<ComplianceCategoryFilter>('all')
-  const [userAdminPinnedIds, setUserAdminPinnedIds] = useState<Set<number>>(() =>
-    typeof window !== 'undefined' ? loadUserAdminPinIds() : new Set()
-  )
-  const previousNotificationIds = useRef<Set<number>>(new Set(initialNotifications.map(n => n.id)))
+  const [timeLeftColumnSort, setTimeLeftColumnSort] = useState<TimeLeftColumnSort>('asc')
+  const previousNotificationIds = useRef<Set<number>>(new Set(initialNotifications.map((n) => n.id)))
+  /** Until the first client refresh finishes, do not treat rows as "new" (avoids spam vs SSR + refetch churn). */
+  const suppressBrowserAlertsUntilFirstSyncRef = useRef(true)
+  const realtimeRefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
     console.debug(
-      '[fleet] ComplianceNotificationsClient: certificate_expiry only; category filter = All | Vehicles | Staff (driver+assistant merged)',
+      '[fleet] ComplianceNotificationsClient: top help = vehicle/staff line + 4 action bullets',
       COMPLIANCE_DASHBOARD_NOTIFICATION_TYPES
+    )
+    console.debug('[fleet] ComplianceNotificationsClient: button legend + Related to column with name + link')
+    console.debug(
+      '[fleet] ComplianceNotificationsClient: default pending sort = least time left first (Time left ↑); cleared = newest-first'
+    )
+    console.debug(
+      '[fleet] ComplianceNotificationsClient: browser alerts only after first sync, tab visible, truly new ids'
+    )
+    console.debug('[fleet] ComplianceNotificationsClient: admin pin / yellow row highlight removed')
+    console.debug('[fleet] ComplianceNotificationsClient: Related to column + vehicle/staff row icons')
+    console.debug(
+      '[fleet] ComplianceNotificationsClient: Contact email column compact (11px/10px, truncate, ~9rem)'
+    )
+    console.debug(
+      '[fleet] ComplianceNotificationsClient: Document affected = certificate name only (vehicle/staff icon in first column)'
+    )
+    console.debug('[fleet] ComplianceNotificationsClient: Status column = Expired | Pending only (from expiry date)')
+    console.debug(
+      '[fleet] ComplianceNotificationsClient: Actions colors — Updates violet, Done always green-600'
     )
   }, [])
 
   useEffect(() => {
-    const valid = new Set(notifications.map((n) => n.id))
-    setUserAdminPinnedIds((prev) => {
-      let changed = false
-      const next = new Set<number>()
-      Array.from(prev).forEach((id) => {
-        if (valid.has(id)) next.add(id)
-        else changed = true
-      })
-      if (changed) saveUserAdminPinIds(next)
-      return changed ? next : prev
-    })
-  }, [notifications])
-
-  useEffect(() => {
-    console.debug('[fleet] ComplianceNotificationsClient: sort mode', sortMode)
-  }, [sortMode])
-
-  useEffect(() => {
     console.debug('[fleet] ComplianceNotificationsClient: category filter', entityFilter)
   }, [entityFilter])
+
+  useEffect(() => {
+    console.debug('[fleet] ComplianceNotificationsClient: Time left column sort', timeLeftColumnSort)
+  }, [timeLeftColumnSort])
 
   // Initialize AudioContext
   useEffect(() => {
@@ -136,15 +208,6 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close()
-      }
-    }
-  }, [])
-
-  // Request notification permission on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission()
       }
     }
   }, [])
@@ -233,26 +296,44 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
 
     if (!data?.length) {
       previousNotificationIds.current = new Set()
+      suppressBrowserAlertsUntilFirstSyncRef.current = true
       setNotifications([])
       return
     }
 
     parseDetailsOnRows(data)
     const ordered = orderComplianceNotificationsListForPage(data as Notification[])
+    const labeled = await withEntityDisplayLabels(supabase, ordered)
 
-    const currentIds = new Set(ordered.map((n) => n.id))
-    const newNotifications = ordered.filter((n) => !previousNotificationIds.current.has(n.id))
+    const currentIds = new Set(labeled.map((n) => n.id))
+    const newNotifications = labeled.filter((n) => !previousNotificationIds.current.has(n.id))
 
-    if (newNotifications.length > 0) {
-      playNotificationSound()
+    const pastFirstClientSync = !suppressBrowserAlertsUntilFirstSyncRef.current
+    const tabVisible = typeof document !== 'undefined' && document.visibilityState === 'visible'
+    const shouldAlertBrowser =
+      pastFirstClientSync && tabVisible && newNotifications.length > 0
+
+    if (shouldAlertBrowser) {
+      console.debug(
+        '[fleet] ComplianceNotificationsClient: browser alert for new certificate rows (tab visible)',
+        newNotifications.map((n) => n.id)
+      )
+      void playNotificationSound()
       newNotifications.forEach((notification) => showBrowserNotification(notification))
+    } else if (newNotifications.length > 0) {
+      console.debug('[fleet] ComplianceNotificationsClient: skip browser alert', {
+        pastFirstClientSync,
+        tabVisible,
+        newCount: newNotifications.length,
+      })
     }
 
+    suppressBrowserAlertsUntilFirstSyncRef.current = false
     previousNotificationIds.current = currentIds
-    setNotifications(ordered)
+    setNotifications(labeled)
     console.debug(
       '[fleet] compliance notifications refreshed from Supabase',
-      ordered.length,
+      labeled.length,
       COMPLIANCE_DASHBOARD_NOTIFICATION_TYPES
     )
   }, [])
@@ -261,7 +342,16 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
   useEffect(() => {
     const supabase = createClient()
 
-    fetchNotifications()
+    void fetchNotifications()
+
+    const scheduleRealtimeRefetch = () => {
+      if (realtimeRefetchDebounceRef.current) clearTimeout(realtimeRefetchDebounceRef.current)
+      realtimeRefetchDebounceRef.current = setTimeout(() => {
+        realtimeRefetchDebounceRef.current = null
+        console.debug('[fleet] compliance notifications: debounced refetch after realtime')
+        void fetchNotifications()
+      }, 400)
+    }
 
     const channel = supabase
       .channel('compliance_certificate_expiry_notifications')
@@ -275,7 +365,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
         },
         (payload) => {
           console.debug('[fleet] compliance notifications realtime event', payload.eventType, payload)
-          void fetchNotifications()
+          scheduleRealtimeRefetch()
         }
       )
       .subscribe((status, err) => {
@@ -295,6 +385,10 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
     document.addEventListener('visibilitychange', onVisible)
 
     return () => {
+      if (realtimeRefetchDebounceRef.current) {
+        clearTimeout(realtimeRefetchDebounceRef.current)
+        realtimeRefetchDebounceRef.current = null
+      }
       document.removeEventListener('visibilitychange', onVisible)
       supabase.removeChannel(channel)
     }
@@ -425,61 +519,9 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
     }
   }
 
-  const handleOpenCase = async (notificationId: number) => {
-    setOpeningCase(notificationId)
-    try {
-      const response = await fetch('/api/compliance/cases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notification_id: notificationId }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to open case')
-      window.location.href = `/dashboard/compliance/cases/${data.case_id}`
-    } catch (e: any) {
-      alert(e.message || 'Failed to open case')
-    } finally {
-      setOpeningCase(null)
-    }
-  }
-
-  const requestToggleUserAdminPin = useCallback((notificationId: number) => {
-    const pinned = userAdminPinnedIds.has(notificationId)
-    if (pinned) {
-      if (
-        !window.confirm(
-          'Remove this row from admin priority?\n\nIt will no longer be highlighted in yellow and will sort like other notifications until you mark it again.'
-        )
-      ) {
-        return
-      }
-      setUserAdminPinnedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(notificationId)
-        saveUserAdminPinIds(next)
-        console.debug('[fleet] ComplianceNotificationsClient: user admin pin removed', notificationId)
-        return next
-      })
-      return
-    }
-    if (
-      !window.confirm(
-        'Send this notification to admin priority?\n\nIt will be highlighted in yellow and pinned to the top of the list (for every sort option) until you remove it with the shield icon.'
-      )
-    ) {
-      return
-    }
-    setUserAdminPinnedIds((prev) => {
-      const next = new Set(prev)
-      next.add(notificationId)
-      saveUserAdminPinIds(next)
-      console.debug('[fleet] ComplianceNotificationsClient: user admin pin added', notificationId)
-      return next
-    })
-  }, [userAdminPinnedIds])
-
-  const handleResolve = async (notificationId: number) => {
+  const handleMarkCompleted = async (notificationId: number) => {
     setResolving(notificationId)
+    console.debug('[fleet] ComplianceNotificationsClient: mark reminder completed', notificationId)
     try {
       const response = await fetch('/api/notifications/resolve', {
         method: 'POST',
@@ -488,7 +530,8 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
       })
 
       if (!response.ok) {
-        throw new Error('Failed to resolve notification')
+        const data = await response.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || 'Failed to mark completed')
       }
 
       setNotifications((prev) =>
@@ -508,40 +551,42 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
 
       window.dispatchEvent(new CustomEvent('notificationResolved'))
     } catch (error: any) {
-      alert('Error resolving notification: ' + error.message)
+      alert(error.message || 'Error marking completed')
     } finally {
       setResolving(null)
     }
   }
 
-  const getStatusIcon = (status: string, daysFromToday: number) => {
-    if (status === 'resolved' || status === 'dismissed') {
-      return <CheckCircle className="h-5 w-5 text-gray-400" />
+  const handleOpenUpdates = async (notificationId: number) => {
+    setOpeningUpdates(notificationId)
+    console.debug('[fleet] ComplianceNotificationsClient: open Updates from notification', notificationId)
+    try {
+      const response = await fetch('/api/compliance/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_id: notificationId }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to open updates')
+      window.location.href = `/dashboard/compliance/cases/${data.case_id}`
+    } catch (e: any) {
+      alert(e.message || 'Failed to open updates')
+    } finally {
+      setOpeningUpdates(null)
     }
+  }
+
+  /** Status column: only expiry-based — Expired (past due) vs Pending (today or future). */
+  const getStatusIcon = (_status: string, daysFromToday: number) => {
     if (daysFromToday < 0) {
       return <XCircle className="h-5 w-5 text-red-500" />
     }
-    if (daysFromToday <= 7) {
-      return <AlertTriangle className="h-5 w-5 text-orange-500" />
-    }
-    return <Clock className="h-5 w-5 text-yellow-500" />
+    return <Clock className="h-5 w-5 text-amber-500" />
   }
 
-  const getStatusBadge = (status: string, daysFromToday: number) => {
-    if (status === 'resolved') {
-      return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-700">Resolved</span>
-    }
-    if (status === 'dismissed') {
-      return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-600">Dismissed</span>
-    }
-    if (status === 'sent') {
-      return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-sky-100 text-sky-700">Email Sent</span>
-    }
+  const getStatusBadge = (_status: string, daysFromToday: number) => {
     if (daysFromToday < 0) {
       return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-rose-100 text-rose-700">Expired</span>
-    }
-    if (daysFromToday <= 7) {
-      return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-orange-100 text-orange-700">Urgent</span>
     }
     return <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-700">Pending</span>
   }
@@ -574,7 +619,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
   useEffect(() => {
     if (entityFilter !== 'all' && !categoryFilterOptions.includes(entityFilter)) {
       setEntityFilter('all')
-      console.debug('[fleet] ComplianceNotificationsClient: category filter reset to All (bucket no longer in list)')
+      console.debug('[fleet] ComplianceNotificationsClient: category filter reset to Everything (bucket no longer in list)')
     }
   }, [entityFilter, categoryFilterOptions])
 
@@ -589,55 +634,65 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
   const complianceNotifications = useMemo(() => {
     const pending = notifications.filter((n) => n.status !== 'resolved' && n.status !== 'dismissed')
     const filtered = pending.filter((n) => notificationMatchesCategoryFilter(n, entityFilter))
-    return sortPendingComplianceByMode(filtered, sortMode, userAdminPinnedIds)
-  }, [notifications, sortMode, entityFilter, userAdminPinnedIds])
+    if (timeLeftColumnSort === 'default') {
+      return sortPendingComplianceByMode(filtered, listSortMode)
+    }
+    return sortPendingByTimeLeft(filtered, timeLeftColumnSort)
+  }, [notifications, entityFilter, timeLeftColumnSort])
 
   const complianceResolved = useMemo(() => {
     const resolved = notifications.filter((n) => n.status === 'resolved' || n.status === 'dismissed')
     const filtered = resolved.filter((n) => notificationMatchesCategoryFilter(n, entityFilter))
-    return sortResolvedComplianceByMode(filtered, sortMode, userAdminPinnedIds)
-  }, [notifications, sortMode, entityFilter, userAdminPinnedIds])
+    return sortResolvedComplianceByMode(filtered, listSortMode)
+  }, [notifications, entityFilter])
 
   return (
     <div className="space-y-6">
-      {notifications.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm space-y-3">
+        <p className="text-sm text-slate-600 leading-relaxed">
+          Notifications for <strong className="text-slate-800">vehicle and staff</strong> documents.
+        </p>
+        <details className="text-sm">
+          <summary className="cursor-pointer text-slate-700 font-medium hover:text-slate-900">
+            What the action icons do
+          </summary>
+          <ul className="mt-3 space-y-1.5 text-slate-600 pl-5 list-disc list-outside">
+            <li>
+              <strong>Updates</strong> — same as clicking the row; open notes and the activity log.
+            </li>
+            <li>
+              <strong>Email</strong> — send or resend the reminder message.
+            </li>
+            <li>
+              <strong>Ignore</strong> — hide this reminder without marking it fully done.
+            </li>
+            <li>
+              <strong>Done</strong> (check) — mark the paperwork completed and remove it from the active list.
+            </li>
+          </ul>
+        </details>
+      </div>
+
+      {notifications.length > 0 && categoryFilterOptions.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Label htmlFor="compliance-sort-mode" className="text-sm font-medium text-slate-600 whitespace-nowrap">
-              Sort by
+            <Label htmlFor="compliance-entity-filter" className="text-sm font-medium text-slate-700 whitespace-nowrap">
+              Show
             </Label>
             <Select
-              id="compliance-sort-mode"
+              id="compliance-entity-filter"
               selectSize="sm"
-              className="w-[min(100%,16rem)] border-slate-200"
-              value={sortMode}
-              onChange={(e) => setSortMode(e.target.value as ComplianceListSortMode)}
+              className="w-[min(100%,16rem)] border-slate-200 bg-white"
+              value={entityFilter === 'all' || categoryFilterOptions.includes(entityFilter) ? entityFilter : 'all'}
+              onChange={(e) => setEntityFilter(e.target.value as ComplianceCategoryFilter)}
             >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="importance">Urgency &amp; importance</option>
+              {categoryFilterOptions.map((value) => (
+                <option key={value} value={value}>
+                  {complianceCategoryFilterLabel(value)}
+                </option>
+              ))}
             </Select>
           </div>
-          {categoryFilterOptions.length > 1 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Label htmlFor="compliance-entity-filter" className="text-sm font-medium text-slate-600 whitespace-nowrap">
-                Category
-              </Label>
-              <Select
-                id="compliance-entity-filter"
-                selectSize="sm"
-                className="w-[min(100%,14rem)] border-slate-200"
-                value={entityFilter === 'all' || categoryFilterOptions.includes(entityFilter) ? entityFilter : 'all'}
-                onChange={(e) => setEntityFilter(e.target.value as ComplianceCategoryFilter)}
-              >
-                {categoryFilterOptions.map((value) => (
-                  <option key={value} value={value}>
-                    {complianceCategoryFilterLabel(value)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
         </div>
       )}
 
@@ -645,15 +700,15 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
         <Card className="border-slate-200">
           <CardContent className="py-12 text-center">
             <CheckCircle className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-500 font-medium">
+            <p className="text-slate-700 font-medium">
               {notifications.some((n) => n.status !== 'resolved' && n.status !== 'dismissed')
-                ? 'No pending notifications match this filter'
-                : 'No pending certificate due dates'}
+                ? 'Nothing to show for this filter'
+                : 'Nothing needs attention right now'}
             </p>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
               {notifications.some((n) => n.status !== 'resolved' && n.status !== 'dismissed')
-                ? 'Try a different category or All.'
-                : 'All certificates are up to date'}
+                ? 'Change &quot;Show&quot; to Everything, or pick Vehicles only / Staff only.'
+                : 'When a certificate or check is due, it will appear in this list automatically.'}
             </p>
           </CardContent>
         </Card>
@@ -663,29 +718,73 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[3.25rem] px-1 text-center align-middle">
+                    <span className="sr-only">Vehicle or staff</span>
+                  </TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Certificate</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead>Expiry Date</TableHead>
-                  <TableHead>From today</TableHead>
-                  <TableHead>Employee Response</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>Document affected</TableHead>
+                  <TableHead>Related to</TableHead>
+                  <TableHead className="max-w-[9rem] w-[9rem] min-w-0">Contact email</TableHead>
+                  <TableHead>Due date</TableHead>
+                  <TableHead className="min-w-[8.5rem]">
+                    <div className="flex items-center gap-2">
+                      <span>Time left</span>
+                      <div
+                        className="inline-flex flex-col rounded border border-slate-200 bg-white overflow-hidden shrink-0"
+                        role="group"
+                        aria-label="Sort by time until expiry"
+                      >
+                        <button
+                          type="button"
+                          className={cn(
+                            'p-0.5 leading-none hover:bg-slate-100 text-slate-600',
+                            timeLeftColumnSort === 'asc' && 'bg-primary/15 text-primary'
+                          )}
+                          title="Least time left first (default) — overdue and soonest due at the top. Click again for newest-first order."
+                          aria-pressed={timeLeftColumnSort === 'asc'}
+                          onClick={() => {
+                            setTimeLeftColumnSort((s) => {
+                              const next = s === 'asc' ? 'default' : 'asc'
+                              console.debug('[fleet] ComplianceNotificationsClient: Time left sort toggle', next)
+                              return next
+                            })
+                          }}
+                        >
+                          <ArrowUp className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            'p-0.5 leading-none border-t border-slate-200 hover:bg-slate-100 text-slate-600',
+                            timeLeftColumnSort === 'desc' && 'bg-primary/15 text-primary'
+                          )}
+                          title="Most time left first — furthest due dates at the top. Click again for newest-first order."
+                          aria-pressed={timeLeftColumnSort === 'desc'}
+                          onClick={() => {
+                            setTimeLeftColumnSort((s) => {
+                              const next = s === 'desc' ? 'default' : 'desc'
+                              console.debug('[fleet] ComplianceNotificationsClient: Time left sort toggle', next)
+                              return next
+                            })
+                          }}
+                        >
+                          <ArrowDown className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
+                    </div>
+                  </TableHead>
+                  <TableHead>Their reply</TableHead>
+                  <TableHead className="min-w-[10rem]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {complianceNotifications.map((notification) => {
                   const daysFromToday = daysFromTodayToExpiryDate(notification.expiry_date)
-                  const needsAdmin = !!notification.admin_response_required
-                  const userPinned = userAdminPinnedIds.has(notification.id)
-                  const subjectLabel = subjectKindLabel(notification.entity_type)
-                  const openSubjectLabel =
-                    notification.entity_type === 'vehicle' ? 'vehicle' : 'staff member'
 
                   const onRowActivate = () => {
-                    if (openingCase === notification.id) return
-                    console.debug('[fleet] ComplianceNotificationsClient: row click open case', notification.id)
-                    void handleOpenCase(notification.id)
+                    if (openingUpdates === notification.id) return
+                    console.debug('[fleet] ComplianceNotificationsClient: row click open Updates', notification.id)
+                    void handleOpenUpdates(notification.id)
                   }
 
                   const statusInner = (
@@ -698,36 +797,47 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                   return (
                   <TableRow
                     key={notification.id}
-                    className={cn(
-                      'cursor-pointer hover:bg-slate-50',
-                      userPinned &&
-                        'z-[1] bg-yellow-100 shadow-[inset_0_0_0_2px_rgba(234,179,8,0.9)] border-l-4 border-yellow-500',
-                      !userPinned && needsAdmin && 'bg-amber-50 border-l-4 border-amber-400'
-                    )}
+                    className="cursor-pointer hover:bg-slate-50"
                     onClick={onRowActivate}
-                    title="Open compliance case — click row; use icons for other actions"
+                    title="Click to open Updates for this reminder"
                   >
+                    <TableCell className="w-[3.25rem] px-1 text-center align-middle">
+                      <div className="flex justify-center">
+                        <EntitySubjectKindIcon entityType={notification.entity_type} />
+                      </div>
+                    </TableCell>
                     <TableCell>{statusInner}</TableCell>
                     <TableCell>
-                        <div>
-                          <div className="font-semibold text-slate-800">{notification.certificate_name}</div>
-                          <div className="text-xs text-slate-500">{subjectLabel} certificate</div>
-                        </div>
+                        <div className="font-semibold text-slate-800">{notification.certificate_name}</div>
                     </TableCell>
                     <TableCell>
                         <Link
                           href={getEntityLink(notification.entity_type, notification.entity_id)}
-                          className="text-primary hover:text-primary/80 hover:underline flex items-center gap-1 font-medium"
+                          className="text-primary hover:text-primary/80 hover:underline inline-flex items-center gap-1.5 font-medium text-slate-800 max-w-[14rem]"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <span>Open {openSubjectLabel}</span>
-                          <ExternalLink className="h-3 w-3" />
+                          <span className="truncate" title={notification.entity_display_label}>
+                            {notification.entity_display_label ?? '—'}
+                          </span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
                         </Link>
                     </TableCell>
-                    <TableCell>
-                        <div>
-                          <div className="text-sm font-medium text-slate-800">{notification.recipient?.full_name || 'N/A'}</div>
-                          <div className="text-xs text-slate-400">{notification.recipient_email || 'No email'}</div>
+                    <TableCell className="max-w-[9rem] min-w-0 align-top py-2">
+                        <div className="min-w-0">
+                          <div
+                            className="text-[11px] leading-snug font-medium text-slate-800 truncate"
+                            title={notification.recipient_email?.trim() || undefined}
+                          >
+                            {notification.recipient_email?.trim() || 'No email'}
+                          </div>
+                          {notification.recipient?.full_name?.trim() ? (
+                            <div
+                              className="text-[10px] leading-tight text-slate-500 mt-0.5 truncate"
+                              title={notification.recipient.full_name}
+                            >
+                              {notification.recipient.full_name}
+                            </div>
+                          ) : null}
                         </div>
                     </TableCell>
                     <TableCell className="text-slate-600">{formatDate(notification.expiry_date)}</TableCell>
@@ -749,7 +859,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                         <div className="space-y-1">
                           <div className="flex items-center space-x-1">
                             <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
-                              ⚠️ Response Required
+                              ⚠️ Waiting for your OK
                             </span>
                           </div>
                           {notification.employee_response_type === 'document_uploaded' && notification.employee_response_details && (
@@ -790,122 +900,103 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                           {notification.employee_response_type === 'document_uploaded' ? '📄 Documents uploaded' : '📅 Appointment booked'}
                         </div>
                       ) : (
-                        <div className="text-xs text-gray-400">No response yet</div>
+                        <div className="text-xs text-gray-400">They have not replied yet</div>
                       )}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
+                      <div
+                        className="flex flex-nowrap items-center gap-1"
+                        role="group"
+                        aria-label="Reminder actions"
+                      >
+                        <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation()
-                            void handleOpenCase(notification.id)
+                            void handleOpenUpdates(notification.id)
                           }}
-                          disabled={openingCase === notification.id}
-                          className="text-slate-600 hover:text-primary hover:bg-primary/10 h-8 w-8 p-0"
-                          title="Open case"
+                          disabled={openingUpdates === notification.id}
+                          title="Updates — notes and activity log"
+                          className={cn(
+                            'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1',
+                            'disabled:pointer-events-none disabled:opacity-45',
+                            'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 hover:border-violet-400'
+                          )}
                         >
-                          <FolderOpen className="h-4 w-4" />
-                        </Button>
-                        {!permissionsLoading && canAdminReviewFocus && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              requestToggleUserAdminPin(notification.id)
-                            }}
-                            className={cn(
-                              'h-8 w-8 p-0',
-                              userPinned
-                                ? 'text-yellow-900 bg-yellow-200 hover:bg-yellow-300'
-                                : 'text-slate-500 hover:text-yellow-800 hover:bg-yellow-50'
-                            )}
-                            title={
-                              userPinned
-                                ? 'Remove from admin priority (confirm)'
-                                : 'Send to admin priority: yellow highlight + top of list (confirm)'
-                            }
-                            aria-pressed={userPinned}
-                          >
-                            <ShieldAlert className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {notification.status === 'pending' && notification.recipient_email && (
-                          <Button
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleOpenEmailEditor(notification)
-                            }}
-                            disabled={sendingEmail === notification.id}
-                            className="bg-primary hover:bg-primary/90 text-white shadow-sm h-8 w-8 p-0"
-                            title="Send Email"
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {notification.status === 'sent' && notification.recipient_email && (
-                          <Button
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleOpenEmailEditor(notification)
-                            }}
-                            disabled={sendingEmail === notification.id}
-                            variant="ghost"
-                            className="text-primary hover:text-primary/80 hover:bg-primary/10 h-8 w-8 p-0"
-                            title="Resend Email"
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {notification.status === 'pending' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void handleDismiss(notification.id)
-                            }}
-                            disabled={dismissing === notification.id}
-                            className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 h-8 w-8 p-0"
-                            title="Ignore"
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {notification.admin_response_required && (
-                          <Button
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void handleResolve(notification.id)
-                            }}
-                            disabled={resolving === notification.id}
-                            className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm h-8 w-8 p-0"
-                            title="Approve"
-                          >
-                            <CheckCircle className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {(notification.status === 'pending' || notification.status === 'sent') && !notification.admin_response_required && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void handleResolve(notification.id)
-                            }}
-                            disabled={resolving === notification.id}
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-8 w-8 p-0"
-                            title="Mark Resolved"
-                          >
-                            <CheckCircle className="h-4 w-4" />
-                          </Button>
-                        )}
+                          <ClipboardList className="h-4 w-4 shrink-0" aria-hidden />
+                          <span className="sr-only">Open updates</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleOpenEmailEditor(notification)
+                          }}
+                          disabled={
+                            sendingEmail === notification.id ||
+                            !notification.recipient_email ||
+                            (notification.status !== 'pending' && notification.status !== 'sent')
+                          }
+                          title={
+                            !notification.recipient_email
+                              ? 'No recipient email on file'
+                              : notification.status === 'sent'
+                                ? 'Resend email'
+                                : 'Send reminder email'
+                          }
+                          className={cn(
+                            'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1',
+                            'disabled:pointer-events-none disabled:opacity-45',
+                            notification.status === 'sent'
+                              ? 'border-sky-200 bg-white text-sky-600 hover:bg-sky-50 hover:border-sky-300'
+                              : 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
+                          )}
+                        >
+                          <Mail className="h-4 w-4 shrink-0" aria-hidden />
+                          <span className="sr-only">Email</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleDismiss(notification.id)
+                          }}
+                          disabled={dismissing === notification.id}
+                          title="Ignore — hide without marking done"
+                          className={cn(
+                            'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1',
+                            'disabled:pointer-events-none disabled:opacity-45',
+                            'border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:border-amber-300'
+                          )}
+                        >
+                          <XCircle className="h-4 w-4 shrink-0" aria-hidden />
+                          <span className="sr-only">Ignore</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleMarkCompleted(notification.id)
+                          }}
+                          disabled={resolving === notification.id}
+                          title={
+                            notification.admin_response_required
+                              ? 'Approve their reply and mark completed'
+                              : 'Mark completed — paperwork finished'
+                          }
+                          className={cn(
+                            'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1',
+                            'disabled:pointer-events-none disabled:opacity-45',
+                            '!border-transparent bg-green-600 text-white hover:bg-green-700 shadow-sm'
+                          )}
+                        >
+                          <CheckCircle className="h-4 w-4 shrink-0" aria-hidden />
+                          <span className="sr-only">Mark completed</span>
+                        </button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -919,45 +1010,47 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
 
       {complianceResolved.length > 0 && (
         <details className="mt-6">
-          <summary className="cursor-pointer text-sm text-slate-500 hover:text-slate-700 font-medium">
-            ▶ Show resolved / dismissed due dates ({complianceResolved.length})
+          <summary className="cursor-pointer text-sm text-slate-700 hover:text-slate-900 font-medium">
+            Show finished or ignored reminders ({complianceResolved.length})
           </summary>
+          <p className="text-xs text-slate-500 mt-2 mb-0 max-w-xl">
+            These are already marked done or ignored. Open a row if you still need the updates history.
+          </p>
           <Card className="mt-4 border-slate-200 rounded-2xl overflow-hidden">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[3.25rem] px-1 text-center align-middle">
+                      <span className="sr-only">Vehicle or staff</span>
+                    </TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Certificate</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Expiry Date</TableHead>
-                    <TableHead>Resolved At</TableHead>
+                    <TableHead>Document affected</TableHead>
+                    <TableHead>Related to</TableHead>
+                    <TableHead>Due date</TableHead>
+                    <TableHead>Closed on</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {complianceResolved.map((notification) => {
                     const daysResolved = daysFromTodayToExpiryDate(notification.expiry_date)
-                    const needsAdmin = !!notification.admin_response_required
-                    const userPinned = userAdminPinnedIds.has(notification.id)
-                    const openSubjectLabel =
-                      notification.entity_type === 'vehicle' ? 'vehicle' : 'staff member'
                     const onResolvedRowClick = () => {
-                      if (openingCase === notification.id) return
-                      console.debug('[fleet] ComplianceNotificationsClient: resolved row open case', notification.id)
-                      void handleOpenCase(notification.id)
+                      if (openingUpdates === notification.id) return
+                      console.debug('[fleet] ComplianceNotificationsClient: resolved row open Updates', notification.id)
+                      void handleOpenUpdates(notification.id)
                     }
                     return (
                     <TableRow
                       key={notification.id}
-                      className={cn(
-                        'cursor-pointer hover:bg-slate-50',
-                        userPinned &&
-                          'z-[1] bg-yellow-100 shadow-[inset_0_0_0_2px_rgba(234,179,8,0.9)] border-l-4 border-yellow-500',
-                        !userPinned && needsAdmin && 'bg-amber-50 border-l-4 border-amber-400'
-                      )}
+                      className="cursor-pointer hover:bg-slate-50"
                       onClick={onResolvedRowClick}
-                      title="Open compliance case — click row"
+                      title="Click to open Updates"
                     >
+                      <TableCell className="w-[3.25rem] px-1 text-center align-middle">
+                        <div className="flex justify-center">
+                          <EntitySubjectKindIcon entityType={notification.entity_type} />
+                        </div>
+                      </TableCell>
                       <TableCell>
                         {getStatusBadge(notification.status, daysResolved)}
                       </TableCell>
@@ -967,10 +1060,13 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                       <TableCell>
                           <Link
                             href={getEntityLink(notification.entity_type, notification.entity_id)}
-                            className="text-primary hover:underline"
+                            className="text-primary hover:underline inline-flex items-center gap-1.5 font-medium max-w-[14rem]"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            Open {openSubjectLabel}
+                            <span className="truncate" title={notification.entity_display_label}>
+                              {notification.entity_display_label ?? '—'}
+                            </span>
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
                           </Link>
                       </TableCell>
                       <TableCell className="text-slate-600">
@@ -995,7 +1091,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
           <Card className="max-w-3xl w-full max-h-[90vh] overflow-y-auto border-slate-200 shadow-2xl">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Edit Email</h2>
+                <h2 className="text-xl font-bold text-slate-900">Send reminder email</h2>
                 <button
                   onClick={() => {
                     setEmailEditorOpen(false)
@@ -1028,9 +1124,9 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                         className="mt-1 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
                       />
                       <div>
-                        <Label htmlFor="hold-on-send" className="text-slate-800">Put on hold until admin clears</Label>
+                        <Label htmlFor="hold-on-send" className="text-slate-800">Pause work until we clear it</Label>
                         <p className="text-xs text-slate-500">
-                          Flags the recipient, vehicle, and related routes as ON HOLD after sending.
+                          After sending, marks the person / vehicle (and linked routes) as on hold until an admin removes it.
                         </p>
                       </div>
                     </div>
@@ -1043,9 +1139,9 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                         className="mt-1 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
                       />
                       <div>
-                        <Label htmlFor="include-appointment-link" className="text-slate-800">Include appointment booking link</Label>
+                        <Label htmlFor="include-appointment-link" className="text-slate-800">Add link to book an appointment</Label>
                         <p className="text-xs text-slate-500">
-                          Adds a link so the recipient can book an available slot.
+                          Puts a link in the email so they can pick a time you have made available.
                         </p>
                       </div>
                     </div>
@@ -1108,7 +1204,7 @@ export function ComplianceNotificationsClient({ initialNotifications }: Complian
                       className="mt-1 flex w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                     />
                     <p className="text-xs text-slate-400 mt-1">
-                      You can edit the email content above. The upload link will be automatically included.
+                      You can change the wording. A link to upload proof is added automatically where needed.
                     </p>
                   </div>
 

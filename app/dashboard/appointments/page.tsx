@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { formatDateTime } from '@/lib/utils'
+import { cn, formatDateTime } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { Calendar, Clock } from 'lucide-react'
 
@@ -44,28 +44,68 @@ interface CrewOption {
   full_name: string
 }
 
+type SlotFormState = {
+  date: string
+  startTime: string
+  endTime: string
+  notes: string
+  plannedBookingContext: string
+  assignedEmployeeId: string
+}
+
+/** Defaults: today (local) + common slot times so controlled inputs have real values (not empty/grey). */
+function createDefaultSlotForm(): SlotFormState {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const defaults: SlotFormState = {
+    date: `${y}-${m}-${day}`,
+    startTime: '12:30',
+    endTime: '13:30',
+    notes: '',
+    plannedBookingContext: '',
+    assignedEmployeeId: '',
+  }
+  console.debug('[fleet] appointments: createDefaultSlotForm', defaults)
+  return defaults
+}
+
+/** Build a local Date from `type="date"` (yyyy-mm-dd) and `type="time"` (hh:mm or hh:mm:ss). */
+function parseSlotLocalDateTime(dateYmd: string, timeHmOrHms: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) return null
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeHmOrHms.trim())
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  const s = m[3] != null ? Number(m[3]) : 0
+  if (h > 23 || min > 59 || s > 59) return null
+  const hh = String(h).padStart(2, '0')
+  const mm = String(min).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  const d = new Date(`${dateYmd}T${hh}:${mm}:${ss}`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export default function AppointmentsPage() {
+  const slotsSectionRef = useRef<HTMLDivElement>(null)
   const [slots, setSlots] = useState<AppointmentSlot[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [crewOptions, setCrewOptions] = useState<CrewOption[]>([])
-  const [form, setForm] = useState({
-    date: '',
-    startTime: '',
-    endTime: '',
-    notes: '',
-    plannedBookingContext: '',
-    assignedEmployeeId: '' as string,
-  })
+  const [highlightSlotId, setHighlightSlotId] = useState<number | null>(null)
+  const [form, setForm] = useState<SlotFormState>(() => createDefaultSlotForm())
 
   const loadSlots = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/appointments/slots')
+      const res = await fetch('/api/appointments/slots?order=newest')
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load slots')
-      setSlots(data.slots || [])
+      const list = data.slots || []
+      console.debug('[fleet] appointments page: slots loaded (newest first)', list.length)
+      setSlots(list)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -78,6 +118,27 @@ export default function AppointmentsPage() {
     console.debug('[fleet] appointments page: native date/time pickers enabled for slot creation')
     loadSlots()
   }, [])
+
+  useEffect(() => {
+    if (highlightSlotId == null) return
+    const rowPresent = slots.some((s) => s.id === highlightSlotId)
+    if (!rowPresent) return
+
+    const sectionEl = slotsSectionRef.current
+    const rowEl = document.getElementById(`appointment-slot-row-${highlightSlotId}`)
+    console.debug('[fleet] appointments: scroll + highlight new slot', highlightSlotId, {
+      hasSection: !!sectionEl,
+      hasRow: !!rowEl,
+    })
+    sectionEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+    const t = window.setTimeout(() => {
+      console.debug('[fleet] appointments: clearing new slot highlight', highlightSlotId)
+      setHighlightSlotId(null)
+    }, 2000)
+    return () => window.clearTimeout(t)
+  }, [highlightSlotId, slots])
 
   useEffect(() => {
     const supabase = createClient()
@@ -105,18 +166,56 @@ export default function AppointmentsPage() {
     e.preventDefault()
     setError(null)
 
+    // noValidate on the form: native type="date"/"time" tooltips can falsely fire when the
+    // visible locale text does not match a valid yyyy-mm-dd / HH:mm value in the DOM.
     if (!form.date || !form.startTime || !form.endTime) {
+      console.debug('[fleet] appointments createSlot: missing required fields', {
+        hasDate: !!form.date,
+        hasStart: !!form.startTime,
+        hasEnd: !!form.endTime,
+      })
       setError('Date, start time, and end time are required')
       return
     }
 
-    const slotStart = new Date(`${form.date}T${form.startTime}`)
-    const slotEnd = new Date(`${form.date}T${form.endTime}`)
+    const ymd = /^\d{4}-\d{2}-\d{2}$/
+    if (!ymd.test(form.date)) {
+      console.debug('[fleet] appointments createSlot: date must be YYYY-MM-DD from picker', form.date)
+      setError('Please choose a valid date using the date picker')
+      return
+    }
+
+    const slotStart = parseSlotLocalDateTime(form.date, form.startTime)
+    const slotEnd = parseSlotLocalDateTime(form.date, form.endTime)
+    if (!slotStart || !slotEnd) {
+      console.debug('[fleet] appointments createSlot: invalid Date from parts', {
+        date: form.date,
+        startTime: form.startTime,
+        endTime: form.endTime,
+      })
+      setError('Could not read date and time — pick the date and times again')
+      return
+    }
 
     if (slotEnd <= slotStart) {
       setError('End time must be after start time')
       return
     }
+
+    const payload = {
+      slotStart: slotStart.toISOString(),
+      slotEnd: slotEnd.toISOString(),
+      notes: form.notes || null,
+      plannedBookingContext: form.plannedBookingContext.trim() || null,
+      assignedEmployeeId: form.assignedEmployeeId ? parseInt(form.assignedEmployeeId, 10) : null,
+    }
+    console.debug('[fleet] appointments createSlot: posting slot payload', {
+      slotStart: payload.slotStart,
+      slotEnd: payload.slotEnd,
+      hasNotes: !!payload.notes,
+      hasContext: !!payload.plannedBookingContext,
+      assignedEmployeeId: payload.assignedEmployeeId,
+    })
 
     setCreating(true)
     try {
@@ -124,24 +223,23 @@ export default function AppointmentsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slotStart: slotStart.toISOString(),
-          slotEnd: slotEnd.toISOString(),
-          notes: form.notes || null,
-          plannedBookingContext: form.plannedBookingContext.trim() || null,
-          assignedEmployeeId: form.assignedEmployeeId ? parseInt(form.assignedEmployeeId, 10) : null,
+          slotStart: payload.slotStart,
+          slotEnd: payload.slotEnd,
+          notes: payload.notes,
+          plannedBookingContext: payload.plannedBookingContext,
+          assignedEmployeeId: payload.assignedEmployeeId,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create slot')
-      setForm({
-        date: '',
-        startTime: '',
-        endTime: '',
-        notes: '',
-        plannedBookingContext: '',
-        assignedEmployeeId: '',
-      })
-      loadSlots()
+      const newSlotId = typeof data.slot?.id === 'number' ? data.slot.id : null
+      console.debug('[fleet] appointments createSlot: created slot id', newSlotId)
+      setForm(createDefaultSlotForm())
+      await loadSlots()
+      if (newSlotId != null) {
+        console.debug('[fleet] appointments createSlot: scheduling scroll/highlight', newSlotId)
+        setHighlightSlotId(newSlotId)
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -168,35 +266,50 @@ export default function AppointmentsPage() {
           <CardTitle className="text-slate-900 text-base font-semibold">Create Slot</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={createSlot} className="grid gap-4 md:grid-cols-2">
+          <form noValidate onSubmit={createSlot} className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="date">Date</Label>
+              <Label htmlFor="date">
+                Date <span className="text-red-600">*</span>
+              </Label>
               <Input
                 id="date"
                 type="date"
                 value={form.date}
-                onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
-                required
+                onChange={(e) => {
+                  const v = e.target.value
+                  console.debug('[fleet] appointments slot form: date changed', v)
+                  setForm((prev) => ({ ...prev, date: v }))
+                }}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="start">Start Time</Label>
+              <Label htmlFor="start">
+                Start Time <span className="text-red-600">*</span>
+              </Label>
               <Input
                 id="start"
                 type="time"
                 value={form.startTime}
-                onChange={(e) => setForm((prev) => ({ ...prev, startTime: e.target.value }))}
-                required
+                onChange={(e) => {
+                  const v = e.target.value
+                  console.debug('[fleet] appointments slot form: start time changed', v)
+                  setForm((prev) => ({ ...prev, startTime: v }))
+                }}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="end">End Time</Label>
+              <Label htmlFor="end">
+                End Time <span className="text-red-600">*</span>
+              </Label>
               <Input
                 id="end"
                 type="time"
                 value={form.endTime}
-                onChange={(e) => setForm((prev) => ({ ...prev, endTime: e.target.value }))}
-                required
+                onChange={(e) => {
+                  const v = e.target.value
+                  console.debug('[fleet] appointments slot form: end time changed', v)
+                  setForm((prev) => ({ ...prev, endTime: v }))
+                }}
               />
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -249,7 +362,11 @@ export default function AppointmentsPage() {
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden border-slate-200">
+      <Card
+        ref={slotsSectionRef}
+        className="overflow-hidden border-slate-200 scroll-mt-6"
+        id="slots-bookings-section"
+      >
         <CardHeader className="bg-slate-50 border-b border-slate-200">
           <CardTitle className="text-slate-900 text-base font-semibold">Slots & Bookings</CardTitle>
         </CardHeader>
@@ -284,7 +401,15 @@ export default function AppointmentsPage() {
                   const intended = slot.intended_crew
                   const contextText = booking?.notes?.trim() || slot.planned_booking_context?.trim() || null
                   return (
-                    <TableRow key={slot.id} className="hover:bg-slate-50">
+                    <TableRow
+                      key={slot.id}
+                      id={`appointment-slot-row-${slot.id}`}
+                      className={cn(
+                        highlightSlotId === slot.id
+                          ? 'bg-blue-50 ring-2 ring-blue-400/70 ring-inset z-[1] shadow-sm'
+                          : 'hover:bg-slate-50'
+                      )}
+                    >
                       <TableCell>
                         <div className="font-semibold text-slate-800">{formatDateTime(slot.slot_start)}</div>
                         <div className="text-sm text-slate-500">

@@ -6,15 +6,15 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
-import { Label } from '@/components/ui/Label'
-import { Select } from '@/components/ui/Select'
-import { ArrowLeft, Save, Plus, Clock } from 'lucide-react'
+import { ArrowLeft, Plus, Clock } from 'lucide-react'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import Link from 'next/link'
 import { daysFromTodayToExpiryDate, formatDaysFromTodayLabel } from '@/lib/expiryRelativeToToday'
 
 interface Notification {
   id: number
+  status?: string
+  admin_response_required?: boolean
   certificate_name: string
   entity_type: string
   entity_id: number
@@ -52,56 +52,23 @@ export function ComplianceCaseDetailClient({
 }: ComplianceCaseDetailClientProps) {
   const router = useRouter()
   const supabase = createClient()
-  const [caseRow, setCaseRow] = useState<CaseRow | null>(initialCaseProp)
+  const caseRow = initialCaseProp
   const [updates, setUpdates] = useState<CaseUpdate[]>(initialUpdatesProp)
-  const [applicationStatus, setApplicationStatus] = useState(initialCaseProp?.application_status || 'not_applied')
-  const [dateApplied, setDateApplied] = useState(initialCaseProp?.date_applied?.split('T')[0] || '')
-  const [appointmentDate, setAppointmentDate] = useState(initialCaseProp?.appointment_date?.split('T')[0] || '')
-  const [saving, setSaving] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [addingNote, setAddingNote] = useState(false)
 
+  /*
+   * Hidden for now (restore when needed):
+   * - "Tracking Actions" card (application status, applied date, appointment, Save)
+   * - "Reminder" card (mark paperwork done / approve)
+   * Related state/handlers were: applicationStatus, dateApplied, appointmentDate, saving,
+   * markingDone, handleSaveTracking, handleMarkPaperworkDone, and the caseRow→form useEffect.
+   */
+
   useEffect(() => {
     console.debug('[fleet] ComplianceCaseDetailClient: "From today" uses daysFromTodayToExpiryDate(expiry_date)')
+    console.debug('[fleet] ComplianceCaseDetailClient: visible sections = Details + Updates & Activity Log only')
   }, [])
-
-  useEffect(() => {
-    setApplicationStatus(caseRow?.application_status || 'not_applied')
-    setDateApplied(caseRow?.date_applied?.split('T')[0] || '')
-    setAppointmentDate(caseRow?.appointment_date?.split('T')[0] || '')
-  }, [caseRow])
-
-  const handleSaveTracking = async () => {
-    setSaving(true)
-    try {
-      const { error } = await supabase
-        .from('compliance_cases')
-        .update({
-          application_status: applicationStatus,
-          date_applied: dateApplied || null,
-          appointment_date: appointmentDate || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', caseId)
-
-      if (error) throw error
-      setCaseRow((prev) =>
-        prev
-          ? {
-            ...prev,
-            application_status: applicationStatus,
-            date_applied: dateApplied || null,
-            appointment_date: appointmentDate || null,
-          }
-          : null
-      )
-      router.refresh()
-    } catch (e: any) {
-      alert(e.message || 'Failed to save')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const handleAddUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -137,7 +104,7 @@ export function ComplianceCaseDetailClient({
     return (
       <Card className="border-red-200">
         <CardContent className="py-8 text-center text-slate-500">
-          Case not found.
+          Update not found.
         </CardContent>
       </Card>
     )
@@ -149,18 +116,16 @@ export function ComplianceCaseDetailClient({
         <Link href="/dashboard/compliance/cases">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to cases
+            Back to updates
           </Button>
         </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left Column: Details & Actions */}
         <div className="lg:col-span-1 space-y-4">
-          {/* Notification Details */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="bg-slate-50 border-b border-slate-100 py-3 px-4">
-              <CardTitle className="text-base font-semibold text-slate-800">Case Details</CardTitle>
+              <CardTitle className="text-base font-semibold text-slate-800">Details</CardTitle>
             </CardHeader>
             <CardContent className="p-4">
               <div className="space-y-3">
@@ -196,58 +161,8 @@ export function ComplianceCaseDetailClient({
               </div>
             </CardContent>
           </Card>
-
-          {/* Compliance Tracking */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="bg-slate-50 border-b border-slate-100 py-3 px-4">
-              <CardTitle className="text-base font-semibold text-slate-800">Tracking Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 space-y-4">
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="application_status" className="text-xs text-slate-500 uppercase tracking-wide">Status</Label>
-                  <Select
-                    id="application_status"
-                    value={applicationStatus}
-                    onChange={(e) => setApplicationStatus(e.target.value)}
-                    className="mt-1.5 h-9"
-                  >
-                    <option value="not_applied">Not applied</option>
-                    <option value="applied">Applied</option>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="date_applied" className="text-xs text-slate-500 uppercase tracking-wide">Applied Date</Label>
-                    <Input
-                      id="date_applied"
-                      type="date"
-                      value={dateApplied}
-                      onChange={(e) => setDateApplied(e.target.value)}
-                      className="mt-1.5 h-9"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="appointment_date" className="text-xs text-slate-500 uppercase tracking-wide">Appointment</Label>
-                    <Input
-                      id="appointment_date"
-                      type="date"
-                      value={appointmentDate}
-                      onChange={(e) => setAppointmentDate(e.target.value)}
-                      className="mt-1.5 h-9"
-                    />
-                  </div>
-                </div>
-              </div>
-              <Button onClick={handleSaveTracking} disabled={saving} className="w-full bg-[#023E8A] hover:bg-[#023E8A]/90" size="sm">
-                <Save className="h-4 w-4 mr-2" />
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Right Column: Updates Feed */}
         <div className="lg:col-span-2 h-full">
           <Card className="border-slate-200 shadow-sm h-full flex flex-col">
             <CardHeader className="bg-slate-50 border-b border-slate-100 py-3 px-4 flex flex-row items-center justify-between shrink-0">
@@ -257,7 +172,6 @@ export function ComplianceCaseDetailClient({
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 flex flex-col flex-1 gap-4 h-[600px]">
-              {/* Add Note Input */}
               <form onSubmit={handleAddUpdate} className="flex gap-2 shrink-0">
                 <Input
                   placeholder="Type a new note or update..."
@@ -271,7 +185,6 @@ export function ComplianceCaseDetailClient({
                 </Button>
               </form>
 
-              {/* Scrollable List */}
               <div className="flex-1 overflow-y-auto pr-1">
                 <ul className="space-y-3">
                   {updates.length === 0 ? (

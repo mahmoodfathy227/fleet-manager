@@ -4,6 +4,7 @@ import { Bell } from 'lucide-react'
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { ComplianceNotificationsClient } from './ComplianceNotificationsClient'
 import { orderComplianceNotificationsListForPage } from '@/lib/complianceNotificationsDisplay'
+import { withEntityDisplayLabels } from '@/lib/complianceEntityDisplayLabel'
 
 /** Shown on Compliance page: vehicle + staff certificate due dates only (trip cancellations live under Route Activity). */
 const COMPLIANCE_PAGE_NOTIFICATION_TYPES = ['certificate_expiry'] as const
@@ -40,15 +41,16 @@ async function getComplianceNotifications() {
   }
 
   const rows = data || []
+  const labeled = await withEntityDisplayLabels(supabase, rows)
   console.debug(
     '[fleet] compliance page SSR: types',
     COMPLIANCE_PAGE_NOTIFICATION_TYPES,
     'count',
-    rows.length
+    labeled.length
   )
   console.debug('[fleet] compliance page SSR: notifications ordered newest first (pending then resolved)')
   return orderComplianceNotificationsListForPage(
-    rows as {
+    labeled as {
       id: number
       status: string
       expiry_date: string | null
@@ -81,28 +83,22 @@ export default async function CompliancePage() {
   const notifications = await getComplianceNotifications()
   const pendingCount = await getPendingCount()
 
-  console.debug('[fleet] compliance page: UI copy — due dates only; trip cancellations → /dashboard/route-activity')
+  console.debug('[fleet] compliance page: minimal header; vehicle/staff line lives in reminder list help card')
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Compliance — due dates</h1>
-            <p className="text-sm text-slate-500">
-              Vehicles and staff with certificates approaching or past expiry — parent trip cancellations are under Route Activity.
-            </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-3xl">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Certificate reminders</h1>
+        </div>
+        {pendingCount > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-100 text-amber-900 border border-amber-200/80 shrink-0">
+            <Bell className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="text-sm font-medium">
+              {pendingCount} item{pendingCount === 1 ? '' : 's'} need attention
+            </span>
           </div>
-        </div>
-        <div className="flex items-center gap-4">
-          {pendingCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-100 text-amber-700">
-              <Bell className="h-4 w-4" />
-              <span className="text-sm font-medium">{pendingCount} pending</span>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       <Suspense fallback={<TableSkeleton />}>

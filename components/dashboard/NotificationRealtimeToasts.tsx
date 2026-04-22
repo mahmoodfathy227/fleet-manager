@@ -143,6 +143,15 @@ export function NotificationRealtimeToasts() {
       const recordId = typeof row.id === 'number' ? row.id : Number(row.id)
       if (!Number.isFinite(recordId)) return
 
+      const ntypeEarly = typeof row.notification_type === 'string' ? row.notification_type : ''
+      if (ntypeEarly === 'certificate_expiry') {
+        emitComplianceNotificationsChanged('realtime-certificate-insert-no-dashboard-toast')
+        console.debug(
+          '[fleet] NotificationRealtimeToasts: skip popup toast for certificate_expiry (compliance page + sidebar only)'
+        )
+        return
+      }
+
       const key = `ins-${recordId}-${Date.now()}`
       const notificationTypeLine = humanizeNotificationType(row)
       const entityAndCertLine = buildEntityAndCertificateLine(row)

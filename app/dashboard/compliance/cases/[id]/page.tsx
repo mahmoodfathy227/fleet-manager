@@ -16,6 +16,8 @@ async function getCase(id: number) {
       updated_at,
       notifications (
         id,
+        status,
+        admin_response_required,
         certificate_name,
         entity_type,
         entity_id,
