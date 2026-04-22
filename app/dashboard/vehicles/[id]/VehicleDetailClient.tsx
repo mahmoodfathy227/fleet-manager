@@ -17,6 +17,8 @@ import {
   FileText,
   LayoutGrid,
   Wrench,
+  ExternalLink,
+  UserX,
 } from 'lucide-react'
 import VehicleUpdates from './VehicleUpdates'
 import VehicleDocuments from './VehicleDocuments'
@@ -247,6 +249,21 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
               <LayoutGrid className="h-3 w-3 mr-1.5" /> Seating
             </Button>
           </Link>
+          {vehicle.samsara_vehicle_id && (
+            <a
+              href={`https://cloud.eu.samsara.com/o/562949953431045/devices/${vehicle.samsara_vehicle_id}/vehicle`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-slate-300">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-13h2v6h-2zm0 8h2v2h-2z" />
+                </svg>
+                Samsara
+                <ExternalLink className="h-3 w-3" />
+              </Button>
+            </a>
+          )}
           <Link href={`/dashboard/vehicles/${vehicleId}/edit`}>
             <Button size="sm" variant="outline" className="h-8 text-xs">
               <Pencil className="h-3 w-3 mr-1.5" /> Edit
@@ -354,7 +371,7 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
 
           {/* Right column (8 cols) */}
           <div className="lg:col-span-8 space-y-4">
-            <VehicleTelematicsPanel vehicleId={vehicleId} />
+            <VehicleTelematicsPanel vehicleId={vehicleId} staticRoutes={routes} />
             <VehicleFuelDistancePanel vehicleId={vehicleId} />
 
             {/* Compliance & expiry - driver-style list with badges */}
@@ -491,24 +508,60 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
                     <p className="text-sm text-slate-500">Loading...</p>
                   ) : routes.length > 0 ? (
                     <div className="space-y-3">
-                      {routes.map((route) => (
-                        <div key={route.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                          <Link href={`/dashboard/routes/${route.id}`} className="text-sm font-semibold text-slate-900 hover:text-primary">
-                            {route.route_number || `Route ${route.id}`}
-                          </Link>
-                          {route.schools && <p className="text-xs text-slate-500 mt-0.5">{route.schools.name}</p>}
-                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
-                            <span>AM {formatTime(route.am_start_time)}</span>
-                            <span>PM {formatTime(route.pm_start_time)}</span>
-                            {route.pm_start_time_friday && route.pm_start_time_friday !== route.pm_start_time && (
-                              <span className="font-medium">Fri PM {formatTime(route.pm_start_time_friday)}</span>
+                      {routes.map((route) => {
+                        const driverName = route.driver?.full_name ?? null
+                        const driverId = route.driver?.id ?? null
+                        const isSpareNoDriver = vehicle.spare_vehicle && !route.driver_id
+                        return (
+                          <div key={route.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                            <div className="flex items-center gap-2">
+                              <Link href={`/dashboard/routes/${route.id}`} className="text-sm font-semibold text-slate-900 hover:text-primary">
+                                {route.route_number || `Route ${route.id}`}
+                              </Link>
+                              {vehicle.samsara_vehicle_id && (
+                                <a
+                                  href={`https://cloud.eu.samsara.com/o/562949953431045/devices/${vehicle.samsara_vehicle_id}/vehicle`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-slate-400 hover:text-slate-600"
+                                  title="View on Samsara"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                            {route.schools && <p className="text-xs text-slate-500 mt-0.5">{route.schools.name}</p>}
+                            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                              <span className="text-slate-400">Driver:</span>
+                              {driverName && driverId ? (
+                                <Link href={`/dashboard/drivers/${driverId}`} className="text-blue-600 hover:underline font-medium">
+                                  {driverName}
+                                </Link>
+                              ) : (
+                                <span className="text-slate-400 italic">Not assigned</span>
+                              )}
+                            </div>
+                            {isSpareNoDriver && (
+                              <div className="mt-2 flex items-center gap-1.5 rounded bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-xs text-amber-800">
+                                <UserX className="h-3.5 w-3.5 shrink-0" />
+                                <span>
+                                  <strong>Spare vehicle</strong> — no driver assigned. This vehicle requires a driver.
+                                </span>
+                              </div>
                             )}
-                            {route.days_of_week && Array.isArray(route.days_of_week) && route.days_of_week.length > 0 && (
-                              <span>{route.days_of_week.join(', ')}</span>
-                            )}
+                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
+                              <span>AM {formatTime(route.am_start_time)}</span>
+                              <span>PM {formatTime(route.pm_start_time)}</span>
+                              {route.pm_start_time_friday && route.pm_start_time_friday !== route.pm_start_time && (
+                                <span className="font-medium">Fri PM {formatTime(route.pm_start_time_friday)}</span>
+                              )}
+                              {route.days_of_week && Array.isArray(route.days_of_week) && route.days_of_week.length > 0 && (
+                                <span>{route.days_of_week.join(', ')}</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-slate-500 text-center py-4">No routes assigned</p>

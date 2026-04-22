@@ -55,7 +55,7 @@ declare global {
   }
 }
 
-export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: number }) {
+export default function VehicleTelematicsPanel({ vehicleId, staticRoutes }: { vehicleId: number; staticRoutes?: Array<{ id: number; route_number: string | null }> }) {
   const [data, setData] = useState<VehicleTelematicsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -265,7 +265,9 @@ export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: numbe
   const displayLat = realtimeLat ?? live?.latitude ?? fallback?.latitude
   const displayLng = realtimeLng ?? live?.longitude ?? fallback?.longitude
   const displaySpeed = realtimeSpeed ?? live?.speedKph
-  const displayEngineState = realtimeEngineState ?? (live?.ignitionOn == null ? null : live.ignitionOn ? 'On' : 'Off')
+  const rawEngineState = realtimeEngineState ?? (live?.ignitionOn == null ? null : live.ignitionOn ? 'On' : 'Off')
+  // If ignition data is missing but vehicle is moving, infer engine is On
+  const displayEngineState = rawEngineState ?? ((displaySpeed != null && displaySpeed > 0) ? 'On' : null)
   const displayUpdatedAt = realtimeUpdatedAt ?? live?.updatedAt ?? fallback?.updatedAt
   const displayFormattedLocation = realtimeFormattedLocation ?? live?.formattedLocation ?? fallback?.formattedLocation
   const freshnessMs = displayUpdatedAt ? Date.now() - new Date(displayUpdatedAt).getTime() : null
@@ -335,11 +337,26 @@ export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: numbe
                   {displaySpeed != null ? `${Number(displaySpeed).toFixed(1)} km/h` : 'N/A'}
                 </span>
               </Info>
-              <Info label="Assigned Route">
+              <Info label="Active Session">
                 {data?.activeRoute ? (
                   <Link href={`/dashboard/routes/${data.activeRoute.routeId}`} className="text-primary hover:underline">
                     {data.activeRoute.routeNumber || `Route ${data.activeRoute.routeId}`}
+                    {data.activeRoute.sessionType && (
+                      <span className="ml-1 text-[10px] text-slate-400 uppercase">{data.activeRoute.sessionType}</span>
+                    )}
                   </Link>
+                ) : staticRoutes && staticRoutes.length > 0 ? (
+                  <span className="text-slate-500">
+                    {staticRoutes.map((r, i) => (
+                      <span key={r.id}>
+                        {i > 0 && ', '}
+                        <Link href={`/dashboard/routes/${r.id}`} className="text-slate-600 hover:underline">
+                          {r.route_number || `Route ${r.id}`}
+                        </Link>
+                      </span>
+                    ))}
+                    <span className="ml-1 text-[10px] text-slate-400">(not on trip)</span>
+                  </span>
                 ) : (
                   'None'
                 )}
@@ -352,8 +369,8 @@ export default function VehicleTelematicsPanel({ vehicleId }: { vehicleId: numbe
                   </span>
                 ) : (
                   (() => {
-                    const eng = realtimeEngineState ?? (live?.ignitionOn == null ? null : live.ignitionOn ? 'On' : 'Off')
-                    if (eng === 'On') return <span className="text-amber-600">Engine On — Not Assigned</span>
+                    const eng = realtimeEngineState ?? (live?.ignitionOn == null ? null : live.ignitionOn ? 'On' : 'Off') ?? ((displaySpeed != null && displaySpeed > 0) ? 'On' : null)
+                    if (eng === 'On') return <span className="text-amber-600">Engine On</span>
                     if (eng === 'Idle') return <span className="text-amber-500">Idling</span>
                     if (eng === 'Off') return <span className="text-slate-500">Engine Off</span>
                     return <span className="text-slate-400">No Signal</span>

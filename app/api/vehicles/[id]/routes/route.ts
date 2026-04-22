@@ -26,6 +26,7 @@ export async function GET(
         pm_start_time,
         pm_start_time_friday,
         days_of_week,
+        driver_id,
         schools (
           id,
           name
@@ -42,7 +43,29 @@ export async function GET(
       )
     }
 
-    return NextResponse.json({ routes: routes || [] })
+    // Fetch driver names — routes.driver_id = employees.id (no FK, manual join)
+    const driverIdSet: Record<number, true> = {}
+    for (const r of routes ?? []) {
+      if ((r as any).driver_id) driverIdSet[(r as any).driver_id] = true
+    }
+    const driverIds = Object.keys(driverIdSet).map(Number)
+    let driverMap: Record<number, { id: number; full_name: string }> = {}
+    if (driverIds.length > 0) {
+      const { data: employees } = await supabase
+        .from('employees')
+        .select('id, full_name')
+        .in('id', driverIds)
+      for (const emp of employees ?? []) {
+        driverMap[(emp as any).id] = emp as any
+      }
+    }
+
+    const enriched = (routes ?? []).map((r: any) => ({
+      ...r,
+      driver: r.driver_id ? (driverMap[r.driver_id] ?? null) : null,
+    }))
+
+    return NextResponse.json({ routes: enriched })
   } catch (error) {
     console.error('Error in routes API:', error)
     return NextResponse.json(

@@ -68,6 +68,17 @@ function StatRow({ label, today, week }: StatRowProps) {
   )
 }
 
+function isToday(isoString: string | null): boolean {
+  if (!isoString) return false
+  const d = new Date(isoString)
+  const now = new Date()
+  return (
+    d.getUTCFullYear() === now.getUTCFullYear() &&
+    d.getUTCMonth() === now.getUTCMonth() &&
+    d.getUTCDate() === now.getUTCDate()
+  )
+}
+
 export default function VehicleFuelDistancePanel({ vehicleId }: { vehicleId: number }) {
   const [data, setData] = useState<FuelDistanceData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -115,10 +126,45 @@ export default function VehicleFuelDistancePanel({ vehicleId }: { vehicleId: num
     )
   }
 
+  const dataIsToday = isToday(data.updated_at)
+  const stale = !dataIsToday
+
+  // For today column: if data is not from today, show '--'
+  const todayVal = <T,>(val: T, formatter: (v: T) => string) =>
+    stale ? '—' : formatter(val)
+
+  const updatedAtStr = data.updated_at
+    ? new Date(data.updated_at).toLocaleString('en-GB', {
+        timeZone: 'Europe/London',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : null
+
   return (
     <Card>
       <CardContent className="p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Fuel &amp; Distance</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">Fuel &amp; Distance</h3>
+          {updatedAtStr && (
+            <span className={`text-xs ${stale ? 'text-amber-600' : 'text-gray-400'}`}>
+              Last updated: {updatedAtStr}
+            </span>
+          )}
+        </div>
+
+        {stale && (
+          <div className="mb-3 flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            No Samsara data received today — today&apos;s figures shown as —
+          </div>
+        )}
 
         {/* Column headers */}
         <div className="grid grid-cols-3 gap-2 mb-1">
@@ -127,31 +173,19 @@ export default function VehicleFuelDistancePanel({ vehicleId }: { vehicleId: num
           <span className="text-xs text-gray-400 text-center font-medium">This Week</span>
         </div>
 
-        <StatRow label="Distance"    today={km(data.distance_today_m)}   week={km(data.distance_week_m)} />
-        <StatRow label="Fuel used"   today={liters(data.fuel_today_ml)}  week={liters(data.fuel_week_ml)} />
-        <StatRow label="Engine time" today={hours(data.engine_time_today_ms)} week={hours(data.engine_time_week_ms)} />
-        <StatRow label="Idle time"   today={hours(data.idle_time_today_ms)}   week={hours(data.idle_time_week_ms)} />
-        <StatRow label="CO₂"         today={co2(data.carbon_today_kg)}   week={co2(data.carbon_week_kg)} />
+        <StatRow label="Distance"    today={todayVal(data.distance_today_m, km)}     week={km(data.distance_week_m)} />
+        <StatRow label="Fuel used"   today={todayVal(data.fuel_today_ml, liters)}    week={liters(data.fuel_week_ml)} />
+        <StatRow label="Engine time" today={todayVal(data.engine_time_today_ms, hours)} week={hours(data.engine_time_week_ms)} />
+        <StatRow label="Idle time"   today={todayVal(data.idle_time_today_ms, hours)}   week={hours(data.idle_time_week_ms)} />
+        <StatRow label="CO₂"         today={todayVal(data.carbon_today_kg, co2)}     week={co2(data.carbon_week_kg)} />
 
         <div className="grid grid-cols-3 gap-2 py-2 border-b border-gray-100">
           <span className="text-sm text-gray-500">Efficiency</span>
-          <span className="text-sm font-medium text-center">{mpgFromRaw(data.distance_today_m, data.fuel_today_ml)}</span>
+          <span className="text-sm font-medium text-center">
+            {stale ? '—' : mpgFromRaw(data.distance_today_m, data.fuel_today_ml)}
+          </span>
           <span className="text-sm font-medium text-center">{mpg(data.efficiency_mpg)}</span>
         </div>
-
-        {data.updated_at && (
-          <p className="text-xs text-gray-400 mt-3">
-            Last synced: {new Date(data.updated_at).toLocaleString('en-GB', {
-              timeZone: 'Europe/London',
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true,
-            })}
-          </p>
-        )}
       </CardContent>
     </Card>
   )
