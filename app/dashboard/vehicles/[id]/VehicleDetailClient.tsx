@@ -96,6 +96,7 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
 
   useEffect(() => {
     console.debug('[fleet] VehicleDetailClient: vehicle_category labels M1/M2/N1/Hackney_Carriage', vehicleId)
+    console.debug('[fleet] VehicleDetailClient: MOT on Overview for PHV + PSV (matches Compliance tab / edit form)')
   }, [vehicleId])
 
   useEffect(() => {
@@ -200,9 +201,12 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
         })()
       : null
 
+  const showMotOnOverview =
+    vehicle.vehicle_type === 'PHV' || vehicle.vehicle_type === 'PSV'
+
   const vehicleCertificates: Array<{ label: string; date: string | null; important?: boolean; ref?: string }> = [
     { label: 'Insurance', date: vehicle.insurance_expiry_date, important: true },
-    ...(vehicle.vehicle_type === 'PHV' ? [{ label: 'MOT', date: vehicle.mot_date, important: true }] : []),
+    ...(showMotOnOverview ? [{ label: 'MOT', date: vehicle.mot_date, important: true }] : []),
     { label: 'Tax', date: vehicle.tax_date },
     ...(vehicle.vehicle_type === 'PHV' || vehicle.tail_lift ? [{ label: 'LOLER', date: vehicle.loler_expiry_date }] : []),
     ...(nextPmiDue ? [{ label: 'PMI Due', date: nextPmiDue, important: true }] : []),
@@ -457,7 +461,7 @@ export default function VehicleDetailClient({ vehicle, vehicleId }: VehicleDetai
                 <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
                   <FieldWithAudit fieldName="last_serviced" label="Last Serviced" value={vehicle.last_serviced} formatValue={formatDate} />
                   <FieldWithAudit fieldName="service_booked_day" label="Service Booked" value={vehicle.service_booked_day} formatValue={formatDate} />
-                  {vehicle.vehicle_type === 'PHV' && (
+                  {showMotOnOverview && (
                     <FieldWithAudit fieldName="mot_date" label="MOT" value={vehicle.mot_date} formatValue={formatDate} />
                   )}
                   <FieldWithAudit fieldName="first_aid_expiry" label="First Aid Expiry" value={vehicle.first_aid_expiry} formatValue={formatDate} />
