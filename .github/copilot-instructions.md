@@ -1,5 +1,70 @@
 # GitHub Copilot Instructions
 
+> 📋 **Full architecture audit (tables, security, buckets, people model):** [`docs/ARCHITECTURE_AUDIT.md`](../docs/ARCHITECTURE_AUDIT.md) — read before proposing any structural change.
+
+---
+
+## Architecture Principles (Audited 23 April 2026)
+
+These rules exist because of proven recurring mistakes. Do not skip them.
+
+### Rule: Never duplicate compliance data in legacy columns
+
+The `drivers` and `passenger_assistants` tables contain individual date/boolean columns for certificates (DBS, TAS, first aid, etc.). These are **legacy duplicates**. The single source of truth is `subject_documents`.
+
+- **Never write to** `drivers.dbs_expiry_date`, `drivers.tas_badge_expiry_date`, `drivers.first_aid_certificate_expiry_date`, or any other legacy compliance column unless explicitly asked to sync them.
+- **Always read compliance status** from `subject_documents` + `document_requirements`.
+- `employees.can_work` is recomputed from `subject_documents` — it is NOT driven by any column in `drivers`.
+
+### Rule: Enable RLS before adding any new table
+
+The following tables currently have **NO RLS** and expose sensitive data to any client with the anon key. Do not add new tables without RLS.
+
+Tables missing RLS (as of 23 April 2026): `employees`, `parent_contacts`, `passenger_parent_contacts`, `sms_verification_otps`, `next_of_kin`, `route_points`, `samsara_telemetry`, `vehicle_configurations`, `admin_notifications`, `parent_data`
+
+Before writing ANY feature that touches these tables, note: their data is currently fully exposed. Any fix to these tables MUST include a RLS migration.
+
+### Rule: Do not reference dead/empty tables
+
+The following tables have 0 rows and are considered dead. Do NOT write code that reads from or writes to them:
+
+`admin_notifications`, `certificate_types`, `certificates`, `driver_responses`, `driver_updates`, `incident_party_entries`, `next_of_kin`, `push_notifications`, `push_notification_recipients`, `route_session_seat_assignments`, `route_stop_events`, `samsara_logs`, `samsara_mapping_audit_log`, `samsara_sync_logs`, `samsara_vehicle_unmatched`, `seating_plan_seats`, `user_push_tokens`, `vehicle_assignments`, `vehicle_compliance_spare_assignments`, `vehicle_configurations`, `vehicle_pre_check_driver_responses`, `vehicle_telematics_latest`
+
+Exception: `push_notifications` and `push_notification_recipients` will be activated when Firebase phase begins — document in code if touching them.
+
+### Rule: Never add NOT NULL without resolving existing NULLs first
+
+```sql
+-- Wrong: will fail if any existing row has NULL
+ALTER TABLE drivers ALTER COLUMN some_col SET NOT NULL;
+
+-- Right: resolve NULLs in same migration, then add constraint
+UPDATE drivers SET some_col = 'default' WHERE some_col IS NULL;
+ALTER TABLE drivers ALTER COLUMN some_col SET NOT NULL;
+```
+
+### Rule: Storage buckets — no new public buckets for personal data
+
+Current bucket problems (audited 23 April 2026):
+- `VEHICLE_DOCUMENTS` (701 files), `DRIVER_DOCUMENTS` (139 files), `EMPLOYEE_DOCUMENTS` (12 files), `employee_personal_photos`, `employees_applications` — all **PUBLIC** with no mime/size limits on some.
+- **Do NOT** upload personal data, compliance docs, or sensitive files to any public bucket.
+- **Do NOT** create new public buckets without explicit approval.
+- For file access auth: use **private buckets + RLS storage policies + short-lived signed URLs** generated server-side. Never use long-TTL or hardcoded public URLs for sensitive files.
+
+### Rule: `public` schema ≠ publicly accessible
+
+All 93 custom tables live in `public` schema. This is normal. The problem is missing RLS, not the schema name. Do not confuse the two.
+
+### Rule: Do not use the `parent_data` table
+
+`parent_data` (3 rows) is a legacy dead table with a `phone_number numeric` column (wrong type). Use `parent_contacts` (1,170 rows) — the active table.
+
+### Rule: `employees` column `full_name` is the source of truth for all staff names
+
+`drivers.full_name` and `drivers.email` and `drivers.phone` exist but are legacy duplicates (only 2/17 rows populated). Use `employees.full_name`, `employees.personal_email`, `employees.phone_number`.
+
+---
+
 ## Pre-Implementation Checklist
 
 Before writing, editing, or deleting **any** line of code in this codebase:
