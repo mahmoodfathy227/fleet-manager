@@ -36,6 +36,15 @@ export function DriverSearchFilters() {
   }, [])
   const [status, setStatus] = useState(get('status') || 'all')
   const [canWork, setCanWork] = useState(get('can_work') || 'all')
+  const [classification, setClassification] = useState(get('classification') || 'all')
+
+  useEffect(() => {
+    setClassification(get('classification') || 'all')
+  }, [searchParams])
+
+  useEffect(() => {
+    console.debug('[fleet] DriverSearchFilters: PSV/PHV drive classification filter (?classification=)')
+  }, [])
 
   const updateFilters = (updates: Record<string, string>) => {
     startTransition(() => {
@@ -87,13 +96,15 @@ export function DriverSearchFilters() {
     setSearch('')
     setStatus('all')
     setCanWork('all')
+    setClassification('all')
     router.push('/dashboard/drivers')
   }
 
   const hasActiveFilters = 
     search.trim() !== '' || 
     status !== 'all' ||
-    canWork !== 'all'
+    canWork !== 'all' ||
+    classification !== 'all'
 
   return (
     <div className="space-y-4 rounded-lg border bg-white p-4 shadow-sm">
@@ -170,6 +181,29 @@ export function DriverSearchFilters() {
             <option value="all">All</option>
             <option value="yes">Yes</option>
             <option value="no">No</option>
+          </Select>
+        </div>
+
+        {/* PSV / PHV (Private Hire Badge) */}
+        <div className="w-full md:w-52">
+          <label htmlFor="classification" className="mb-2 block text-sm font-medium text-gray-700">
+            Drive classification
+          </label>
+          <Select
+            id="classification"
+            value={classification}
+            onChange={(e) => {
+              const v = e.target.value
+              setClassification(v)
+              updateFilters({ classification: v })
+            }}
+            disabled={isPending}
+          >
+            <option value="all">All drivers</option>
+            <option value="psv">PSV license</option>
+            <option value="phv">PHV / Private hire badge</option>
+            <option value="both">PSV + PHV</option>
+            <option value="neither">Neither</option>
           </Select>
         </div>
 

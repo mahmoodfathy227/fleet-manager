@@ -31,6 +31,12 @@ export default function CreateDriverPage() {
   const minDate = `${minYear}-01-01`
   const maxDate = `${maxYear}-12-31`
 
+  useEffect(() => {
+    console.debug(
+      '[fleet] CreateDriverPage: Drive type block (PSV + PHV) — same flags as /dashboard/drivers classification'
+    )
+  }, [])
+
   const [formData, setFormData] = useState({
     employee_id: '',
     spare_driver: false,
@@ -38,6 +44,8 @@ export default function CreateDriverPage() {
     tas_badge_number: '',
     tas_badge_expiry_date: '',
     dbs_number: '',
+    /** Local UI only — not persisted; DBS evidence is `dbs_number` + file. */
+    dbs_check: false,
     psv_license: false,
     first_aid_certificate_expiry_date: '',
     passport_expiry_date: '',
@@ -108,9 +116,14 @@ export default function CreateDriverPage() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target
+    const next =
+      type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    if (name === 'psv_license' || name === 'private_hire_badge' || name === 'dbs_check') {
+      console.debug('[fleet] CreateDriverPage: checkbox', { name, next })
+    }
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+      [name]: next
     }))
     if (fieldErrors[name]) {
       setFieldErrors(prev => {
@@ -605,27 +618,80 @@ export default function CreateDriverPage() {
             </CardContent>
           </Card>
 
+          <Card className="flex-1 border-primary/20 bg-primary/[0.03] shadow-sm">
+            <CardContent className="p-4 space-y-3">
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-primary/10 pb-2">
+                What can this driver drive?
+              </h2>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Tick <strong>all that apply</strong>. These match <strong>Drivers</strong> list filters (PSV license, PHV / Private hire badge).
+                PSV usually covers bus / scheduled passenger work; PHV is private hire badge work (taxi-style / private hire).
+              </p>
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div className="flex items-start gap-3 p-2 rounded-md hover:bg-slate-50/80 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="psv_license"
+                    name="psv_license"
+                    checked={formData.psv_license}
+                    onChange={handleInputChange}
+                    className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Label htmlFor="psv_license" className="text-sm font-semibold text-slate-800 cursor-pointer">
+                      PSV license
+                    </Label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Driver holds a PSV entitlement for this role.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-2 rounded-md hover:bg-slate-50/80 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="private_hire_badge"
+                    name="private_hire_badge"
+                    checked={formData.private_hire_badge}
+                    onChange={handleInputChange}
+                    className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Label htmlFor="private_hire_badge" className="text-sm font-semibold text-slate-800 cursor-pointer">
+                      Private hire (PHV)
+                    </Label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Driver has a private hire badge — same meaning as the PHV filter on the drivers list.</p>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                <span className="font-medium text-slate-700">Current selection:</span>{' '}
+                {!formData.psv_license && !formData.private_hire_badge
+                  ? 'Neither — they will not appear under PSV or PHV classification filters until you tick at least one.'
+                  : formData.psv_license && formData.private_hire_badge
+                    ? 'PSV + PHV (both).'
+                    : formData.psv_license
+                      ? 'PSV only.'
+                      : 'PHV / Private hire only.'}
+              </p>
+            </CardContent>
+          </Card>
+
           <Card className="flex-1">
             <CardContent className="p-4">
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3 border-b pb-2">Checklist</h2>
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-1 border-b pb-2">Screening</h2>
+              <p className="text-[11px] text-slate-500 mb-3">Separate from drive type — DBS and evidence below.</p>
               <div className="space-y-2">
-                {[
-                  { id: 'psv_license', label: 'PSV License' },
-                  { id: 'private_hire_badge', label: 'Private Hire Badge' },
-                  { id: 'dbs_check', label: 'DBS Checked', warning: 'Requires valid number' },
-                ].map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors">
-                    <Label htmlFor={item.id} className="text-sm text-slate-700 cursor-pointer flex-1">{item.label}</Label>
-                    <input
-                      type="checkbox"
-                      id={item.id}
-                      name={item.id}
-                      checked={formData[item.id as keyof typeof formData] as boolean}
-                      onChange={handleInputChange}
-                      className="rounded border-slate-300 text-primary focus:ring-primary"
-                    />
-                  </div>
-                ))}
+                <div className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors">
+                  <Label htmlFor="dbs_check" className="text-sm text-slate-700 cursor-pointer flex-1">
+                    DBS checked <span className="text-slate-400 font-normal">(requires DBS number / certificate)</span>
+                  </Label>
+                  <input
+                    type="checkbox"
+                    id="dbs_check"
+                    name="dbs_check"
+                    checked={formData.dbs_check}
+                    onChange={handleInputChange}
+                    className="rounded border-slate-300 text-primary focus:ring-primary"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

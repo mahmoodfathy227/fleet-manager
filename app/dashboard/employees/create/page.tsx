@@ -133,7 +133,12 @@ export default function CreateEmployeePage() {
 
   const handleDriverInput = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target
-    setDriverForm(prev => ({ ...prev, [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value }))
+    const next =
+      type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    if (name === 'psv_license' || name === 'private_hire_badge') {
+      console.debug('[fleet] employees/create: drive type toggle', { name, next })
+    }
+    setDriverForm(prev => ({ ...prev, [name]: next }))
     if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' }))
   }
   const handlePAInput = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -444,7 +449,9 @@ export default function CreateEmployeePage() {
   }, [])
 
   useEffect(() => {
-    console.debug('[fleet] employees/create: training / checklist / additional-docs UI removed (restored after git rebase)')
+    console.debug(
+      '[fleet] employees/create: Drive type block when role=Driver (PSV + PHV — same flags as /dashboard/drivers classification)'
+    )
   }, [])
 
   return (
@@ -487,6 +494,19 @@ export default function CreateEmployeePage() {
           <form onSubmit={handleSubmit} className="space-y-4" id="create-employee-form">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1">
+                <Label htmlFor="full_name" className="text-xs font-medium text-slate-600">Full Name *</Label>
+                <Input
+                  id="full_name"
+                  required
+                  value={formData.full_name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, full_name: e.target.value })
+                  }
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1">
                 <Label htmlFor="role" className="text-xs font-medium text-slate-600">Role *</Label>
                 <Select
                   id="role"
@@ -504,18 +524,65 @@ export default function CreateEmployeePage() {
                 <p className="text-xs text-gray-500">Choosing Driver or PA will show role-specific details below.</p>
               </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="full_name" className="text-xs font-medium text-slate-600">Full Name *</Label>
-                <Input
-                  id="full_name"
-                  required
-                  value={formData.full_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, full_name: e.target.value })
-                  }
-                  className="h-9"
-                />
-              </div>
+              {formData.role === 'Driver' && (
+                <div className="md:col-span-2">
+                  <Card className="border-primary/20 bg-primary/[0.03] shadow-sm">
+                    <CardContent className="p-4 space-y-3">
+                      <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-primary/10 pb-2">
+                        What can this driver drive?
+                      </h2>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Tick <strong>all that apply</strong>. These match <strong>Drivers</strong> list filters (PSV license, PHV / Private hire badge).
+                        PSV usually covers bus / scheduled passenger work; PHV is private hire badge work (taxi-style / private hire).
+                      </p>
+                      <div className="space-y-2 rounded-lg border border-slate-200 bg-white/80 p-3">
+                        <div className="flex items-start gap-3 p-2 rounded-md hover:bg-slate-50/80 transition-colors">
+                          <input
+                            type="checkbox"
+                            id="emp_create_psv_license"
+                            name="psv_license"
+                            checked={driverForm.psv_license}
+                            onChange={handleDriverInput}
+                            className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <Label htmlFor="emp_create_psv_license" className="text-sm font-semibold text-slate-800 cursor-pointer">
+                              PSV license
+                            </Label>
+                            <p className="text-[11px] text-slate-500 mt-0.5">Driver holds a PSV entitlement for this role.</p>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-3 p-2 rounded-md hover:bg-slate-50/80 transition-colors">
+                          <input
+                            type="checkbox"
+                            id="emp_create_private_hire_badge"
+                            name="private_hire_badge"
+                            checked={driverForm.private_hire_badge}
+                            onChange={handleDriverInput}
+                            className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <Label htmlFor="emp_create_private_hire_badge" className="text-sm font-semibold text-slate-800 cursor-pointer">
+                              Private hire (PHV)
+                            </Label>
+                            <p className="text-[11px] text-slate-500 mt-0.5">Driver has a private hire badge — same meaning as the PHV filter on the drivers list.</p>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        <span className="font-medium text-slate-700">Current selection:</span>{' '}
+                        {!driverForm.psv_license && !driverForm.private_hire_badge
+                          ? 'Neither — they will not appear under PSV or PHV classification filters until you tick at least one.'
+                          : driverForm.psv_license && driverForm.private_hire_badge
+                            ? 'PSV + PHV (both).'
+                            : driverForm.psv_license
+                              ? 'PSV only.'
+                              : 'PHV / Private hire only.'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <Label htmlFor="employment_status" className="text-xs font-medium text-slate-600">Employment Status</Label>

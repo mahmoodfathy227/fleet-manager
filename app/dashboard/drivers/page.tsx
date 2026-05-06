@@ -8,10 +8,22 @@ import { Eye, Pencil, UserCog, CheckCircle, XCircle } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { DriverSearchFilters } from './DriverSearchFilters'
 
+/** URL param + in-memory filter: PSV = psv_license, PHV = private_hire_badge (Private Hire Badge in forms). */
+export type DriverClassificationFilter = 'all' | 'psv' | 'phv' | 'both' | 'neither'
+
+function driverHasPsv(driver: any): boolean {
+  return driver?.psv_license === true
+}
+
+function driverHasPhv(driver: any): boolean {
+  return driver?.private_hire_badge === true
+}
+
 async function getDrivers(filters?: {
   search?: string
   status?: string
   can_work?: string
+  classification?: DriverClassificationFilter
 }) {
   const supabase = await createClient()
   let query = supabase
@@ -56,6 +68,20 @@ async function getDrivers(filters?: {
     filtered = filtered.filter((driver: any) => driver.employees?.can_work === false)
   }
 
+  const cls = filters?.classification
+  if (cls && cls !== 'all') {
+    if (cls === 'psv') {
+      filtered = filtered.filter((d: any) => driverHasPsv(d))
+    } else if (cls === 'phv') {
+      filtered = filtered.filter((d: any) => driverHasPhv(d))
+    } else if (cls === 'both') {
+      filtered = filtered.filter((d: any) => driverHasPsv(d) && driverHasPhv(d))
+    } else if (cls === 'neither') {
+      filtered = filtered.filter((d: any) => !driverHasPsv(d) && !driverHasPhv(d))
+    }
+    console.debug('[fleet] dashboard/drivers getDrivers: classification filter', cls, 'count', filtered.length)
+  }
+
   return filtered
 }
 
@@ -81,12 +107,14 @@ async function DriversTable({
   search,
   status,
   can_work,
+  classification,
 }: {
   search?: string
   status?: string
   can_work?: string
+  classification?: DriverClassificationFilter
 }) {
-  const drivers = await getDrivers({ search, status, can_work })
+  const drivers = await getDrivers({ search, status, can_work, classification })
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -175,6 +203,11 @@ async function DriversTable({
   )
 }
 
+function parseClassification(raw: string | undefined): DriverClassificationFilter {
+  if (raw === 'psv' || raw === 'phv' || raw === 'both' || raw === 'neither') return raw
+  return 'all'
+}
+
 export default async function DriversPage({
   searchParams,
 }: {
@@ -182,6 +215,7 @@ export default async function DriversPage({
     search?: string
     status?: string
     can_work?: string
+    classification?: string
   }
 }) {
   // Build filters from search params (Next.js 14 - searchParams is not a Promise)
@@ -189,12 +223,16 @@ export default async function DriversPage({
     search: searchParams?.search || undefined,
     status: searchParams?.status || undefined,
     can_work: searchParams?.can_work || undefined,
+    classification: parseClassification(searchParams?.classification),
   }
 
   // Create a unique key for Suspense based on all filter params
   const suspenseKey = JSON.stringify(filters)
 
-  console.debug('[fleet] dashboard/drivers page: Add Driver header button removed')
+  console.debug(
+    '[fleet] dashboard/drivers page: PSV/PHV classification filter via ?classification=',
+    filters.classification
+  )
 
   return (
     <div className="space-y-6">

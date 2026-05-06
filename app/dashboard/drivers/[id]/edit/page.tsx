@@ -78,7 +78,7 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     console.debug(
-      '[fleet] drivers/[id]/edit: Checklist + Additional Docs removed; dates use toDateOnlyStringForInput + TAS subject_documents sync on save'
+      '[fleet] EditDriverPage: Drive type block (PSV + PHV) — same flags as /dashboard/drivers classification'
     )
   }, [])
 
@@ -130,9 +130,14 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target
+    const next =
+      type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    if (name === 'psv_license' || name === 'private_hire_badge') {
+      console.debug('[fleet] EditDriverPage: drive type toggle', { name, next })
+    }
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+      [name]: next
     }))
   }
 
@@ -514,6 +519,62 @@ export default function EditDriverPage({ params }: { params: { id: string } }) {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="flex-1 border-primary/20 bg-primary/[0.03] shadow-sm">
+            <CardContent className="p-4 space-y-3">
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-primary/10 pb-2">
+                What can this driver drive?
+              </h2>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Tick <strong>all that apply</strong>. These match <strong>Drivers</strong> list filters (PSV license, PHV / Private hire badge).
+                PSV usually covers bus / scheduled passenger work; PHV is private hire badge work (taxi-style / private hire).
+              </p>
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div className="flex items-start gap-3 p-2 rounded-md hover:bg-slate-50/80 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="psv_license"
+                    name="psv_license"
+                    checked={formData.psv_license}
+                    onChange={handleInputChange}
+                    className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Label htmlFor="psv_license" className="text-sm font-semibold text-slate-800 cursor-pointer">
+                      PSV license
+                    </Label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Driver holds a PSV entitlement for this role.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-2 rounded-md hover:bg-slate-50/80 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="private_hire_badge"
+                    name="private_hire_badge"
+                    checked={formData.private_hire_badge}
+                    onChange={handleInputChange}
+                    className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Label htmlFor="private_hire_badge" className="text-sm font-semibold text-slate-800 cursor-pointer">
+                      Private hire (PHV)
+                    </Label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Driver has a private hire badge — same meaning as the PHV filter on the drivers list.</p>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                <span className="font-medium text-slate-700">Current selection:</span>{' '}
+                {!formData.psv_license && !formData.private_hire_badge
+                  ? 'Neither — they will not appear under PSV or PHV classification filters until you tick at least one.'
+                  : formData.psv_license && formData.private_hire_badge
+                    ? 'PSV + PHV (both).'
+                    : formData.psv_license
+                      ? 'PSV only.'
+                      : 'PHV / Private hire only.'}
+              </p>
             </CardContent>
           </Card>
         </div>
